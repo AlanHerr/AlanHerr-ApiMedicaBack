@@ -19,9 +19,3 @@ class UserRepository:
         session.close()
         return user
 
-    @staticmethod
-    def get_all():
-        session = get_db_session()
-        users = session.query(User).all()
-        session.close()
-        return users
