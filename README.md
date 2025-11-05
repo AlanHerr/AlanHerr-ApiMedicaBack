@@ -102,6 +102,19 @@ DIABETES_THRESHOLD=0.5
 
 ---
 
+## Despliegue en Railway (u otros WSGI)
+
+- Asegúrate de definir la variable de entorno `PORT` (Railway la define automáticamente) y tus credenciales (`MYSQL_URI`, `JWT_SECRET_KEY`).
+- Este repo incluye un `Procfile` con:
+  
+   `web: gunicorn app:app --bind 0.0.0.0:$PORT`
+
+   Con eso, el servidor WSGI apunta al objeto `app` definido en `app.py`.
+- Si tu plataforma espera el módulo `main:app`, también incluimos `main.py` que reexpone el objeto WSGI.
+- El warning de `pkg_resources` es informativo. Si deseas silenciarlo, puedes:
+   - Actualizar gunicorn a una versión más reciente, o
+   - Fijar `setuptools<81`.
+
 ## Modelos de ML
 
 - Archivos esperados en `model/`:
