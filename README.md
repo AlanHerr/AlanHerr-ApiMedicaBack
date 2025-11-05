@@ -80,13 +80,17 @@ API/
 Crea un archivo `.env` en la raíz del proyecto con el siguiente contenido:
 
 ```
-MYSQL_URI=postgresql://usuario:contraseña@host:puerto/nombre_db
+# Postgres (Railway/Heroku)
+DATABASE_URL=postgresql://usuario:contraseña@host:puerto/nombre_db
+# (Compatibilidad previa) También se acepta MYSQL_URI con el mismo formato
+# MYSQL_URI=postgresql://usuario:contraseña@host:puerto/nombre_db
+
 JWT_SECRET_KEY=tu_clave_secreta_jwt
 # Umbral operativo opcional para clasificar positivo/negativo
 DIABETES_THRESHOLD=0.5
 ```
 
-- `MYSQL_URI`: cadena de conexión SQLAlchemy a tu BD remota. Puede apuntar a PostgreSQL (ej. `postgresql://...`) o a MySQL (`mysql+driver://...`). Si no se define o falla la conexión, se usa SQLite local `medical_local.db` como respaldo.
+- `DATABASE_URL` (o `MYSQL_URI`): cadena de conexión SQLAlchemy a tu BD remota. Puede apuntar a PostgreSQL (ej. `postgresql://...` o `postgres://`) o a MySQL (`mysql+driver://...`). Si no se define o falla la conexión, se usa SQLite local `medical_local.db` como respaldo.
 - `JWT_SECRET_KEY`: clave secreta para firmar tokens JWT (usa una aleatoria fuerte en producción).
 - `DIABETES_THRESHOLD`: umbral para marcar `positive` en la respuesta del modelo (por defecto 0.5).
 
@@ -104,13 +108,14 @@ DIABETES_THRESHOLD=0.5
 
 ## Despliegue en Railway (u otros WSGI)
 
-- Asegúrate de definir la variable de entorno `PORT` (Railway la define automáticamente) y tus credenciales (`MYSQL_URI`, `JWT_SECRET_KEY`).
+- Asegúrate de definir la variable de entorno `PORT` (Railway la define automáticamente) y tus credenciales (`DATABASE_URL` o `MYSQL_URI`, `JWT_SECRET_KEY`).
 - Este repo incluye un `Procfile` con:
   
    `web: gunicorn app:app --bind 0.0.0.0:$PORT`
 
    Con eso, el servidor WSGI apunta al objeto `app` definido en `app.py`.
 - Si tu plataforma espera el módulo `main:app`, también incluimos `main.py` que reexpone el objeto WSGI.
+- Driver de Postgres: esta API usa el driver moderno `psycopg` (psycopg3). Si tu URL es `postgres://` o `postgresql://`, se normaliza automáticamente a `postgresql+psycopg://` para evitar problemas con `psycopg2` en Python 3.13.
 - El warning de `pkg_resources` es informativo. Si deseas silenciarlo, puedes:
    - Actualizar gunicorn a una versión más reciente, o
    - Fijar `setuptools<81`.

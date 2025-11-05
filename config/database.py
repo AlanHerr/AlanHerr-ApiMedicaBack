@@ -38,6 +38,9 @@ def get_engine():
         except OperationalError:
             # Si falla la conexión, muestra un warning y usa SQLite local
             logging.warning('No se pudo conectar a la base de datos remota. Usando SQLite local.')
+        except Exception as e:
+            # Cubre errores de importación del driver u otros problemas de creación del engine
+            logging.warning(f'Fallo al inicializar el motor de BD remoto ({type(e).__name__}): {e}. Usando SQLite local.')
     # Si no hay URI remota o falla, usa SQLite local
     engine = create_engine(SQLITE_URI, echo=False)
     return engine
