@@ -1,10 +1,7 @@
 
-# API de Productos
+# API Médica de Predicción de Diabetes
 
-Proyecto integral para la gestión de productos y usuarios de una tienda, compuesto por:
-- **Backend:** API RESTful con Flask, SQLAlchemy y autenticación JWT.
-- **Frontend:** React moderno y responsivo.
-- **Base de datos:** PostgreSQL (Railway) y respaldo local SQLite.
+API RESTful con Flask para predicción de diabetes basada en modelos de Machine Learning (scaler + árbol de decisión). Incluye autenticación JWT para gestión de usuarios. Persistencia con SQLAlchemy y BD remota (o SQLite local como respaldo).
 
 ---
 
@@ -32,33 +29,22 @@ API/
 │   └── database.py
 ├── controller/
 │   ├── __init__.py
-│   ├── products_controller.py
+│   ├── diabetes_controller.py
 │   └── user_controller.py
 ├── model/
 │   ├── __init__.py
-│   ├── products_models.py
+│   ├── base.py
+│   ├── diabetes.py
 │   └── user.py
 ├── repository/
 │   ├── __init__.py
-│   ├── products_repository.py
+│   ├── diabetes_repository.py
 │   └── user_repository.py
 ├── service/
 │   ├── __init__.py
-│   ├── products_service.py
+│   ├── diabetes_model.py
+│   ├── diabetes_service.py
 │   └── user_service.py
-├── frontend/
-│   ├── package.json
-│   ├── package-lock.json
-│   ├── public/
-│   │   └── index.html
-│   └── src/
-│       ├── App.js
-│       ├── App.css
-│       ├── index.js
-│       ├── Login.js
-│       ├── Register.js
-│       ├── Products.js
-│       └── setupProxy.js
 ├── .env
 ├── requirements.txt
 ├── curl_examples.sh
@@ -87,53 +73,22 @@ API/
    python app.py
    ```
 
-### Frontend (React)
-1. Entra a la carpeta del frontend:
-   ```bash
-   cd frontend
-   ```
-2. Instala las dependencias:
-   ```bash
-   npm install
-   ```
-3. Inicia la app React:
-   ```bash
-   npm start
-   ```
-
 ---
-
-
-
 
 ## Variables de Entorno (Backend)
 
 Crea un archivo `.env` en la raíz del proyecto con el siguiente contenido:
 
 ```
-DATABASE_URI=postgresql://usuario:contraseña@host:puerto/nombre_db
+MYSQL_URI=postgresql://usuario:contraseña@host:puerto/nombre_db
 JWT_SECRET_KEY=tu_clave_secreta_jwt
+# Umbral operativo opcional para clasificar positivo/negativo
+DIABETES_THRESHOLD=0.5
 ```
 
-- `DATABASE_URI`: URI de Railway PostgreSQL (o SQLite para desarrollo local).
-- `JWT_SECRET_KEY`: Clave secreta para firmar los tokens JWT.
-
----
-
-## Variables de Entorno (Frontend)
-
-El frontend React puede tener su propio archivo `.env` dentro de la carpeta `frontend/` para definir variables de entorno específicas del cliente. Estas variables permiten configurar, por ejemplo, la URL de la API backend o claves públicas de servicios externos.
-
-Ejemplo de `.env` en `frontend/`:
-
-```
-REACT_APP_API_URL=http://localhost:5000
-REACT_APP_GOOGLE_MAPS_KEY=tu_clave_publica
-```
-
-**Notas:**
-- Todas las variables deben comenzar con `REACT_APP_` para que React las reconozca.
-- Nunca pongas datos sensibles o secretos privados en el `.env` del frontend, ya que el código es visible para el usuario final.
+- `MYSQL_URI`: cadena de conexión SQLAlchemy a tu BD remota. Puede apuntar a PostgreSQL (ej. `postgresql://...`) o a MySQL (`mysql+driver://...`). Si no se define o falla la conexión, se usa SQLite local `medical_local.db` como respaldo.
+- `JWT_SECRET_KEY`: clave secreta para firmar tokens JWT (usa una aleatoria fuerte en producción).
+- `DIABETES_THRESHOLD`: umbral para marcar `positive` en la respuesta del modelo (por defecto 0.5).
 
 ---
 
@@ -141,23 +96,27 @@ REACT_APP_GOOGLE_MAPS_KEY=tu_clave_publica
 
 | Método | Endpoint              | Descripción                        | Autenticación |
 |--------|-----------------------|------------------------------------|---------------|
-| GET    | /products             | Lista todos los productos          | JWT           |
-| GET    | /products/<id>        | Obtiene un producto por ID         | JWT           |
-| POST   | /products             | Crea un producto nuevo             | JWT           |
-| PUT    | /products/<id>        | Actualiza un producto existente    | JWT           |
-| DELETE | /products/<id>        | Elimina un producto                | JWT           |
+| POST   | /predict/diabetes     | Predice diabetes y almacena datos  | JWT           |
 | POST   | /users/register       | Registra un nuevo usuario          | No            |
 | POST   | /users/login          | Inicia sesión y devuelve JWT       | No            |
-| GET    | /users/               | Lista todos los usuarios           | JWT           |
 
 ---
 
+## Modelos de ML
+
+- Archivos esperados en `model/`:
+   - `scaler.pkl`: StandardScaler entrenado (scikit-learn)
+   - `modelo_arbol_de_decision.pkl`: DecisionTreeClassifier entrenado
+- Orden de features esperado por el pipeline (también expuesto vía `feature_names_in_`):
+   `["Pregnancies", "Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"]`
+- Nota: si el modelo fue serializado con otra versión de scikit-learn, puede aparecer un warning al cargar. Conviene alinear versiones o re-serializar.
+
 ## Pruebas con curl_examples.sh
 
-El archivo [`curl_examples.sh`](./curl_examples.sh) contiene ejemplos de cómo consumir todos los endpoints de la API usando `curl`, incluyendo:
+El archivo [`curl_examples.sh`](./curl_examples.sh) contiene ejemplos de cómo consumir los endpoints clave de la API usando `curl`, incluyendo:
 - Registro y login de usuario
 - Obtención de token JWT
-- CRUD de productos (casos de éxito y error)
+- Predicción de diabetes (protegida con JWT) y almacenamiento en BD
 
 Para ejecutar los ejemplos:
 ```bash
@@ -172,7 +131,7 @@ Puedes modificar los datos de ejemplo según tus necesidades.
 ## Notas de Seguridad y Roles
 
 - **Roles:** Actualmente todos los usuarios registrados pueden acceder a los endpoints protegidos (no hay distinción de roles).
-- **JWT:** Todos los endpoints de productos y el listado de usuarios requieren autenticación JWT.
+- **JWT:** Los endpoints protegidos (como `/predict/diabetes` y `/users/`) requieren autenticación JWT.
 - **Contraseñas:** Se almacenan de forma segura (hash).
 - **Variables sensibles:** No subas `.env` ni credenciales al repositorio.
 - **Base de datos:** Si la conexión a Railway falla, se usa SQLite local como respaldo.
@@ -181,8 +140,7 @@ Puedes modificar los datos de ejemplo según tus necesidades.
 
 ## Testing y Buenas Prácticas
 
-- El backend y frontend están modularizados siguiendo buenas prácticas (modelo, repositorio, servicio, controlador).
-- El frontend React permite probar todos los endpoints de la API de forma visual.
+- El backend está modularizado siguiendo buenas prácticas (modelo, repositorio, servicio, controlador).
 - Puedes probar la API sin frontend usando el archivo [`curl_examples.sh`](./curl_examples.sh).
 - Los endpoints devuelven respuestas en formato JSON.
 - Para pruebas automáticas, puedes usar herramientas como Postman, Insomnia o pytest.
@@ -201,26 +159,53 @@ Puedes modificar los datos de ejemplo según tus necesidades.
 ---
 
 
-## Ejemplo de Modelos
+## Predicción de Diabetes: Payload y Respuesta
 
-### Producto
-```python
-class Product(Base):
-   __tablename__ = 'products'
-   id = Column(Integer, primary_key=True)
-   name = Column(String(100), nullable=False)
-   category = Column(String(50), nullable=False)
-   price = Column(Float, nullable=False)
-   quantity = Column(Integer, nullable=False)
+Endpoint: `POST /predict/diabetes`
+
+Cuerpo JSON requerido (campos obligatorios):
+
+```
+{
+   "Pregnancies": 2,
+   "Glucose": 130.0,
+   "BloodPressure": 70.0,
+   "SkinThickness": 20.0,
+   "Insulin": 85.0,
+   "BMI": 28.1,
+   "DiabetesPedigreeFunction": 0.45,
+   "Age": 33
+}
 ```
 
-### Usuario
-```python
-class User(Base):
-   __tablename__ = 'users'
-   id = Column(Integer, primary_key=True)
-   username = Column(String(80), unique=True, nullable=False)
-   password = Column(String(255), nullable=False)
+Notas:
+- Se aceptan también nombres equivalentes en minúscula o con guiones bajos (por ejemplo, `blood_pressure`, `diabetes_pedigree_function`).
+- Los valores deben ser numéricos (enteros o flotantes según corresponda).
+
+Respuesta exitosa (200):
+```
+{
+   "id": 1,
+   "prediction": 0,
+   "probability": 0.23,
+   "positive": false,
+   "threshold": 0.5
+}
+```
+Donde `id` es el registro almacenado en la BD, `prediction` ∈ {0,1} y `probability` es la probabilidad de clase positiva (si el modelo la expone).
+
+Umbral configurable: puedes ajustar la clasificación operativa con la variable de entorno `DIABETES_THRESHOLD` (por defecto 0.5).
+
+Depuración opcional: añade `?debug=1` al endpoint para obtener detalles como z-scores por feature, importancia de variables y hoja del árbol.
+
+Error de validación (422):
+```
+{
+   "errors": {
+      "Glucose": "Debe ser número (float)",
+      "Age": "Debe ser mayor a 0"
+   }
+}
 ```
 
 ---
