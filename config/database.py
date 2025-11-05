@@ -5,8 +5,9 @@ import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError
-from model.products_models import Base
+from model.base import Base
 from model.user import User
+from model.diabetes import DiabetesPrediction
 from dotenv import load_dotenv
 
 # Configura el nivel de logging para mostrar mensajes informativos
@@ -18,7 +19,7 @@ load_dotenv()
 # Obtiene la URI de la base de datos remota desde la variable de entorno
 DATABASE_URI = os.getenv('MYSQL_URI')  # Usas esta variable en tu .env
 # Define la URI para la base de datos local SQLite como respaldo
-SQLITE_URI = 'sqlite:///products_local.db'  # Nombre ajustado para productos
+SQLITE_URI = 'sqlite:///medical_local.db'
 
 # Función para obtener el motor de conexión a la base de datos
 def get_engine():
