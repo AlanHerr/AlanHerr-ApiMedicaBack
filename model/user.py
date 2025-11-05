@@ -1,6 +1,6 @@
 
 from sqlalchemy import Column, Integer, String
-from model.products_models import Base
+from model.base import Base
 import logging
 
 logger = logging.getLogger(__name__)
