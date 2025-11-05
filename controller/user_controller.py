@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import create_access_token, jwt_required
+from flask_jwt_extended import create_access_token
 from service.user_service import UserService
 
 users_bp = Blueprint('users', __name__)
@@ -26,10 +26,3 @@ def login():
         return jsonify({'error': 'Invalid credentials'}), 401
     access_token = create_access_token(identity=str(user.id))
     return jsonify({'access_token': access_token}), 200
-
-@users_bp.route('/users/', methods=['GET'])
-@jwt_required()
-def list_users():
-    users = UserService.list_users()
-    users_list = [ {'id': u.id, 'username': u.username} for u in users ]
-    return jsonify(users_list), 200
