@@ -17,6 +17,3 @@ class UserService:
             return user
         return None
 
-    @staticmethod
-    def list_users():
-        return UserRepository.get_all()
