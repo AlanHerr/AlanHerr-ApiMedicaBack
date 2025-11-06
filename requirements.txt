@@ -135,4 +135,3 @@ PyJWT==2.10.1
 gunicorn==20.1.0
 psycopg[binary]==3.2.3
 Flask-Cors==5.0.0
-Flask-Cors==4.0.0
