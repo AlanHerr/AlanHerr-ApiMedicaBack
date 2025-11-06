@@ -1,4 +1,3 @@
-psycopg[binary]==3.2.3
 anyio==4.9.0
 argon2-cffi==25.1.0
 argon2-cffi-bindings==21.2.0
@@ -134,3 +133,4 @@ itsdangerous==2.2.0
 MarkupSafe==3.0.3
 PyJWT==2.10.1
 gunicorn==20.1.0
+psycopg[binary]==3.2.3

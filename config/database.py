@@ -16,8 +16,9 @@ logging.basicConfig(level=logging.INFO)
 # Carga variables de entorno desde el archivo .env
 load_dotenv()
 
-# Obtiene la URI de la base de datos remota desde la variable de entorno
-DATABASE_URI = os.getenv('MYSQL_URI')  # Usas esta variable en tu .env
+# Obtiene la URI de la base de datos remota desde variables comunes
+# Prioriza DATABASE_URL (Railway/Heroku) y mantiene compatibilidad con MYSQL_URI
+DATABASE_URI = os.getenv('DATABASE_URL') or os.getenv('MYSQL_URI')
 # Define la URI para la base de datos local SQLite como respaldo
 SQLITE_URI = 'sqlite:///medical_local.db'
 
@@ -28,12 +29,25 @@ def get_engine():
     """
     if DATABASE_URI:
         try:
+            # Normaliza driver de Postgres a psycopg (psycopg3)
+            uri = DATABASE_URI
+            if uri.startswith('postgres://'):
+                uri = uri.replace('postgres://', 'postgresql+psycopg://', 1)
+            elif uri.startswith('postgresql://') and '+psycopg' not in uri and '+psycopg2' not in uri:
+                uri = uri.replace('postgresql://', 'postgresql+psycopg://', 1)
+
             # Crea el motor de conexión usando la URI remota
-            engine = create_engine(DATABASE_URI, echo=False)
-            # Probar conexión abriendo y cerrando una conexión
-            conn = engine.connect()
-            conn.close()
-            logging.info('Conexión a la base de datos remota exitosa.')
+            engine = create_engine(uri, echo=False, pool_pre_ping=True)
+
+            # Probar conexión abriendo y cerrando una conexión (solo en proceso principal del reloader)
+            try:
+                conn = engine.connect()
+                conn.close()
+                # Evita doble log con el reloader de Flask
+                if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or 'WERKZEUG_RUN_MAIN' not in os.environ:
+                    logging.info('Conexión a la base de datos remota exitosa.')
+            except OperationalError:
+                raise
             return engine
         except OperationalError:
             # Si falla la conexión, muestra un warning y usa SQLite local
