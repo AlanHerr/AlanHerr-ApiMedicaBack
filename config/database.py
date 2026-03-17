@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError
 from model.base import Base
 from model.user import User
-from model.diabetes import DiabetesPrediction
+from model.model_metadata import ModelMetadata
 from dotenv import load_dotenv
 
 # Configura el nivel de logging para mostrar mensajes informativos
