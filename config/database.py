@@ -1,61 +1,74 @@
+
+# Importa módulos necesarios para la configuración y conexión a la base de datos
 import os
 import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError
 from model.base import Base
-from model.user import User  # Importante para que Base los reconozca
-from model.model_metadata import ModelMetadata 
+from model.user import User
+from model.model_metadata import ModelMetadata
 from dotenv import load_dotenv
 
-# Configuración de logs
+# Configura el nivel de logging para mostrar mensajes informativos
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
+# Carga variables de entorno desde el archivo .env
 load_dotenv()
 
-DATABASE_URI = os.getenv('DATABASE_URL')
+# Obtiene la URI de la base de datos remota desde variables comunes
+# Prioriza DATABASE_URL (Railway/Heroku) y mantiene compatibilidad con MYSQL_URI
+DATABASE_URI = os.getenv('DATABASE_URL') or os.getenv('MYSQL_URI')
+# Define la URI para la base de datos local SQLite como respaldo
 SQLITE_URI = 'sqlite:///medical_local.db'
 
+# Función para obtener el motor de conexión a la base de datos
 def get_engine():
     """
-    Crea el motor de base de datos priorizando la remota con driver psycopg.
+    Intenta crear una conexión con la base de datos remota. Si falla, usa SQLite local.
     """
     if DATABASE_URI:
         try:
+            # Normaliza driver de Postgres a psycopg (psycopg3)
             uri = DATABASE_URI
-            # Normalización para Railway y SQLAlchemy + Psycopg3
             if uri.startswith('postgres://'):
                 uri = uri.replace('postgres://', 'postgresql+psycopg://', 1)
-            elif uri.startswith('postgresql://') and '+psycopg' not in uri:
+            elif uri.startswith('postgresql://') and '+psycopg' not in uri and '+psycopg2' not in uri:
                 uri = uri.replace('postgresql://', 'postgresql+psycopg://', 1)
 
+            # Crea el motor de conexión usando la URI remota
             engine = create_engine(uri, echo=False, pool_pre_ping=True)
-            
-            # Prueba de conexión rápida
-            with engine.connect() as conn:
-                logger.info("✅ Conexión a PostgreSQL en Railway exitosa.")
+
+            # Probar conexión abriendo y cerrando una conexión (solo en proceso principal del reloader)
+            try:
+                conn = engine.connect()
+                conn.close()
+                # Evita doble log con el reloader de Flask
+                if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or 'WERKZEUG_RUN_MAIN' not in os.environ:
+                    logging.info('Conexión a la base de datos remota exitosa.')
+            except OperationalError:
+                raise
             return engine
+        except OperationalError:
+            # Si falla la conexión, muestra un warning y usa SQLite local
+            logging.warning('No se pudo conectar a la base de datos remota. Usando SQLite local.')
         except Exception as e:
-            logger.warning(f"⚠️ Fallo conexión remota: {e}. Usando SQLite local.")
-    
-    return create_engine(SQLITE_URI, echo=False)
+            # Cubre errores de importación del driver u otros problemas de creación del engine
+            logging.warning(f'Fallo al inicializar el motor de BD remoto ({type(e).__name__}): {e}. Usando SQLite local.')
+    # Si no hay URI remota o falla, usa SQLite local
+    engine = create_engine(SQLITE_URI, echo=False)
+    return engine
 
-# Inicialización global
+# Obtiene el motor de conexión (remoto o local)
 engine = get_engine()
+# Crea una fábrica de sesiones para interactuar con la base de datos
 Session = sessionmaker(bind=engine)
+# Crea las tablas en la base de datos si no existen, usando el modelo Base
+Base.metadata.create_all(engine)
 
-def init_db():
-    """
-    Crea las tablas basándose en los modelos importados.
-    Se llama desde app.py para asegurar el orden de ejecución.
-    """
-    try:
-        # Esto busca todo lo que herede de Base (User, ModelMetadata, etc.)
-        Base.metadata.create_all(engine)
-        logger.info("🚀 Tablas verificadas y creadas correctamente.")
-    except Exception as e:
-        logger.error(f"❌ Error crítico al crear tablas: {e}")
-
+# Función para obtener una nueva sesión de base de datos
 def get_db_session():
+    """
+    Retorna una nueva sesión de base de datos para ser utilizada en los servicios o controladores.
+    """
     return Session()

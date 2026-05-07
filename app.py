@@ -1,27 +1,30 @@
+
+# Importa la clase principal de Flask para crear la aplicación web
+
 import os
 from flask import Flask
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager
-from dotenv import load_dotenv
-
-# Importación de controladores
 from controller.user_controller import users_bp
 from controller.model_controller import model_bp
 from controller.predict_controller import predict_bp
+from flask_jwt_extended import JWTManager
+from dotenv import load_dotenv
 
-# Importación de la lógica de base de datos
-from database import init_db 
-
+# Cargar variables de entorno
 load_dotenv()
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN DE CORS ---
+# Configurar CORS: orígenes desde env CORS_ORIGINS (separados por coma)
 _origins_env = os.getenv("CORS_ORIGINS")
 if _origins_env:
     allowed_origins = [o.strip() for o in _origins_env.split(',') if o.strip()]
 else:
-    allowed_origins = ["http://localhost:5173", "http://localhost:3000"]
+    # Defaults de desarrollo; para producción define CORS_ORIGINS (ej: https://tu-app.vercel.app)
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
 
 CORS(
     app,
@@ -34,21 +37,14 @@ CORS(
     supports_credentials=True,
 )
 
-# --- INICIALIZACIÓN DE BASE DE DATOS ---
-# Forzamos la creación de tablas al arrancar
-with app.app_context():
-    init_db()
-
-# --- REGISTRO DE BLUEPRINTS ---
+# Registrar blueprints
 app.register_blueprint(users_bp)
 app.register_blueprint(model_bp)
 app.register_blueprint(predict_bp)
 
-# --- CONFIGURACIÓN JWT ---
+# Configuración de la clave secreta para JWT
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "tu_clave_secreta_jwt")
 jwt = JWTManager(app)
 
 if __name__ == '__main__':
-    # Railway usa la variable PORT por defecto
-    port = int(os.getenv("PORT", 5000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0')
