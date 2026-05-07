@@ -1,256 +1,362 @@
-# API Médica de Predicción de Diabetes
+    # 🚀 API Médica Dinámica - Sistema de Modelos ML
 
-API RESTful con Flask que predice riesgo de diabetes usando un scaler y un árbol de decisión (scikit‑learn). Autenticación con JWT, persistencia con SQLAlchemy y base de datos PostgreSQL (con fallback a SQLite para desarrollo).
+API RESTful avanzada con Flask para predicción médica dinámica. Permite a profesionales subir modelos de Machine Learning (PKL) de forma segura, genera esquemas automáticamente, crea tablas de base de datos dinámicas y ejecuta predicciones con almacenamiento persistente. Soporta múltiples modelos simultáneamente con autenticación JWT y base de datos PostgreSQL (Railway).
 
-—
+---
 
-## Contenido
-- Descripción y stack
-- Estructura
-- Instalación/Ejecución
-- Variables de entorno y conexión a BD
-- Blueprints y endpoints (payloads, respuestas, errores)
-- Modelos y almacenamiento
-- Ejemplos con curl
-- Despliegue (Railway) y notas
-- Seguridad y buenas prácticas
-- Troubleshooting
+## 📋 Tabla de Contenidos
+- [Descripción General](#descripción-general)
+- [Stack Tecnológico](#stack-tecnológico)
+- [Arquitectura](#arquitectura)
+- [Estructura del Proyecto](#estructura-del-proyecto)
+- [Instalación y Configuración](#instalación-y-configuración)
+- [Variables de Entorno](#variables-de-entorno)
+- [Uso de la API](#uso-de-la-api)
+- [Endpoints Principales](#endpoints-principales)
+- [Formatos de Modelos Soportados](#formatos-de-modelos-soportados)
+- [Base de Datos](#base-de-datos)
+- [Despliegue](#despliegue)
+- [Seguridad](#seguridad)
+- [Troubleshooting](#troubleshooting)
+- [Contribución](#contribución)
+- [Licencia](#licencia)
 
-—
+---
 
-## Descripción y stack
-- Framework: Flask 3.x (Blueprints)
-- Auth: Flask‑JWT‑Extended (tokens JWT)
-- ORM: SQLAlchemy 2.x
-- ML: scikit‑learn (DecisionTreeClassifier + StandardScaler) cargados con joblib
-- BD: PostgreSQL vía driver psycopg (psycopg3); fallback a SQLite local para desarrollo
-- WSGI: Gunicorn (Procfile incluido)
+## 🎯 Descripción General
 
-—
+Este sistema transforma una API estática de predicción de diabetes en una plataforma dinámica que permite:
 
-## Estructura
+- **Carga de Modelos**: Profesionales pueden subir modelos ML entrenados (PKL) vía endpoints seguros
+- **Generación Automática de Esquemas**: Extrae metadatos del modelo para crear formularios dinámicos en el frontend
+- **Tablas Dinámicas**: Crea automáticamente tablas de base de datos para almacenar predicciones por modelo
+- **Predicciones Seguras**: Ejecuta predicciones con validación y almacenamiento persistente
+- **Multi-Modelo**: Soporta múltiples modelos simultáneamente con aislamiento de datos
+
+### Casos de Uso
+- Plataformas médicas que necesitan actualizar modelos frecuentemente
+- Profesionales de ML que despliegan modelos sin modificar el backend
+- Sistemas de predicción con múltiples especialidades médicas
+
+---
+
+## 🛠️ Stack Tecnológico
+
+- **Framework Web**: Flask 3.x con Blueprints modulares
+- **Autenticación**: Flask-JWT-Extended (tokens JWT)
+- **ORM**: SQLAlchemy 2.x con soporte PostgreSQL
+- **Machine Learning**: scikit-learn, joblib para serialización PKL
+- **Base de Datos**: PostgreSQL (Railway) con fallback a SQLite
+- **Servidor WSGI**: Gunicorn
+- **Procesamiento de Datos**: NumPy, Pandas
+- **Validación**: Marshmallow para esquemas dinámicos
+- **CORS**: Flask-CORS para integración frontend
+
+---
+
+## 🏗️ Arquitectura
+
+El sistema sigue una arquitectura limpia con separación de responsabilidades:
 
 ```
-├── app.py                      # App Flask y registro de blueprints
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Controller    │───▶│    Service      │───▶│  Repository     │
+│   (Endpoints)   │    │  (Lógica de     │    │  (Acceso a BD)  │
+│                 │    │   Negocio)      │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Model         │    │   PKL Files     │    │   Database       │
+│   (ORM)         │    │   (Storage)     │    │   (PostgreSQL)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### Componentes Principales
+
+- **Controller Layer**: Maneja requests HTTP, validación de entrada, respuestas JSON
+- **Service Layer**: Contiene lógica de negocio, carga de modelos, ejecución de predicciones
+- **Repository Layer**: Abstracción de acceso a datos, operaciones CRUD
+- **Model Layer**: Definiciones ORM SQLAlchemy para tablas estáticas y dinámicas
+
+---
+
+## 📁 Estructura del Proyecto
+
+```
+AlanHerr-ApiMedicaBack/
+├── app.py                          # Aplicación Flask principal
+├── main.py                         # Alias WSGI alternativo
+├── Procfile                        # Configuración Gunicorn
+├── requirements.txt                # Dependencias Python
+├── API_GUIDE.md                    # Guía completa de la API
+├── README.md                       # Este archivo
+├── curl_examples.sh                # Scripts de ejemplo con curl
 ├── config/
-│   └── database.py             # Engine SQLAlchemy, Session y create_all
+│   └── database.py                 # Configuración BD SQLAlchemy
 ├── controller/
-│   ├── user_controller.py      # /users/register, /users/login
-│   └── diabetes_controller.py  # /predict/diabetes (JWT)
+│   ├── __init__.py
+│   ├── user_controller.py          # Auth: register/login
+│   ├── model_controller.py         # Admin: upload/list modelos
+│   └── predict_controller.py       # Predictions genéricas
 ├── model/
-│   ├── base.py                 # Declarative Base
-│   ├── user.py                 # Tabla usuarios
-│   └── diabetes.py             # Tabla diabetes_predictions
+│   ├── __init__.py
+│   ├── base.py                     # Base declarativa SQLAlchemy
+│   ├── user.py                     # Tabla usuarios (con is_admin)
+│   ├── model_metadata.py           # Metadatos de modelos ML
+│   └── diabetes.py                 # Tabla legacy (opcional)
 ├── repository/
-│   ├── user_repository.py      # Acceso a User
-│   └── diabetes_repository.py  # Inserción de predicciones
+│   ├── __init__.py
+│   ├── user_repository.py          # CRUD usuarios
+│   └── model_metadata_repository.py # CRUD metadatos modelos
 ├── service/
-│   ├── user_service.py         # Registro y autenticación
-│   ├── diabetes_model.py       # Carga scaler/modelo (.pkl)
-│   └── diabetes_service.py     # Validación + pipeline + persistencia
-├── model/scaler.pkl            # Scaler entrenado (esperado)
-├── model/modelo_arbol_de_decision.pkl # Modelo entrenado (esperado)
-├── main.py                     # Alias WSGI opcional (main:app)
-├── Procfile                    # Gunicorn
-├── requirements.txt
-├── curl_examples.sh
-└── README.md
-```
-
-—
-
-## Instalación y ejecución
-1) Entorno virtual
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-2) Dependencias
-```bash
-pip install -r requirements.txt
-```
-3) Variables (ver siguiente sección) y correr en desarrollo
-```bash
-python app.py
-```
-
-—
-
-## Variables de entorno y conexión a BD
-Archivo `.env` (ejemplo):
-```
-# PostgreSQL (Railway/Heroku)
-DATABASE_URL=postgresql://usuario:contraseña@host:puerto/nombre_db
-# Compatibilidad: también se acepta MYSQL_URI con el mismo valor
-# MYSQL_URI=postgresql://usuario:contraseña@host:puerto/nombre_db
-
-# JWT
-JWT_SECRET_KEY=tu_clave_secreta_jwt
-
-# Umbral para clasificar positivo/negativo (opcional)
-DIABETES_THRESHOLD=0.5
-
-# Orígenes permitidos para CORS (separados por coma)
-# CORS_ORIGINS=https://tu-frontend.vercel.app,https://otro-dominio.com
-```
-
-Notas:
-- La app prioriza DATABASE_URL y usa el driver `psycopg` (psycopg3). Si tu URL es `postgres://` o `postgresql://`, se normaliza internamente a `postgresql+psycopg://`.
-- Si la conexión remota falla, se usa SQLite local `sqlite:///medical_local.db` (útil en desarrollo). En proveedores que exigen SSL, agrega `?sslmode=require`.
-
-—
-
-## Blueprints y endpoints
-
-Blueprints registrados: `users`, `diabetes`.
-
-### POST /users/register (público)
-Registra un nuevo usuario.
-
-Request JSON:
-```
-{
-  "username": "demo_user",
-  "password": "Demo1234!"
-}
-```
-Respuestas:
-- 201: `{ "message": "User registered successfully" }`
-- 400: `{ "error": "Username and password required" }`
-- 409: `{ "error": "User already exists" }`
-
-### POST /users/login (público)
-Autentica y devuelve un JWT.
-
-Request JSON:
-```
-{
-  "username": "demo_user",
-  "password": "Demo1234!"
-}
-```
-Respuestas:
-- 200: `{ "access_token": "<JWT>" }`
-- 401: `{ "error": "Invalid credentials" }`
-
-### POST /predict/diabetes (protegido con JWT)
-Recibe los 8 atributos clínicos, ejecuta el pipeline ML y almacena entrada + salida en BD.
-
-Headers: `Authorization: Bearer <JWT>`
-
-Query opcional: `?debug=1` para información de depuración (importancias, z‑scores, hoja del árbol).
-
-Request JSON (nombres aceptan equivalentes minúsculas/underscore):
-```
-{
-  "Pregnancies": 2,
-  "Glucose": 130.0,
-  "BloodPressure": 70.0,
-  "SkinThickness": 20.0,
-  "Insulin": 85.0,
-  "BMI": 28.1,
-  "DiabetesPedigreeFunction": 0.45,
-  "Age": 33
-}
-```
-Respuesta 200:
-```
-{
-  "id": 1,
-  "prediction": 0,
-  "probability": 0.23,
-  "positive": false,
-  "threshold": 0.5
-  // si debug=1 → "debug": { expected_feature_order, zscores, leaf_id, feature_importances }
-}
-```
-Errores 422 (validación):
-```
-{ "errors": { "Age": "Debe ser mayor a 0", "BMI": "Debe ser mayor a 0" } }
-```
-
-—
-
-## Modelos y almacenamiento
-
-Archivos esperados:
-- `model/scaler.pkl` (StandardScaler)
-- `model/modelo_arbol_de_decision.pkl` (DecisionTreeClassifier)
-
-Orden de features esperado (también detectado mediante `feature_names_in_` si está presente):
-`["Pregnancies", "Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"]`
-
-Tablas principales:
-- `users`: id, username, password(hash)
-- `diabetes_predictions`: campos de entrada + `predicted`, `probability`, `created_at`
-
-—
-
-## Ejemplos con curl
-
-Base URL (Railway):
-```bash
-BASE="https://alanherr-apimedicaback-production.up.railway.app"
-```
-
-Registrar (opcional):
-```bash
-curl -sS -X POST "$BASE/users/register" -H "Content-Type: application/json" \
-  -d '{"username":"demo_user","password":"Demo1234!"}'
-```
-
-Login → token:
-```bash
-TOKEN=$(curl -sS -X POST "$BASE/users/login" -H "Content-Type: application/json" \
-  -d '{"username":"demo_user","password":"Demo1234!"}' | python -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
-```
-
-Predicción:
-```bash
-curl -sS -X POST "$BASE/predict/diabetes" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"Pregnancies":2,"Glucose":130,"BloodPressure":70,"SkinThickness":20,"Insulin":85,"BMI":28.1,"DiabetesPedigreeFunction":0.45,"Age":33}'
-```
-
-Debug:
-```bash
-curl -sS -X POST "$BASE/predict/diabetes?debug=1" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"Pregnancies":2,"Glucose":130,"BloodPressure":70,"SkinThickness":20,"Insulin":85,"BMI":28.1,"DiabetesPedigreeFunction":0.45,"Age":33}'
-```
-
-Consejo de seguridad: evita imprimir o hardcodear el token. Puedes guardar la cabecera en un archivo con permisos 600 y usar `-H @archivo`.
-
-—
-
-## Despliegue (Railway)
-- Variables: `DATABASE_URL` (o `MYSQL_URI`), `JWT_SECRET_KEY`, `PORT` (Railway la define).
-- `Procfile`: `web: gunicorn app:app --bind 0.0.0.0:$PORT`
-- `main.py` reexpone WSGI como `main:app` si alguna plataforma lo requiere.
-- Driver de BD: se usa `psycopg` (psycopg3). Si ves errores con `psycopg2`, limpia caché y reinstala deps para tomar el `requirements.txt` actualizado.
-
-—
-
-## Seguridad y buenas prácticas
-- JWT: tokens de corta duración recomendados; considera añadir refresh tokens.
-- Passwords: se guardan hasheadas (Werkzeug).
-- No subas `.env` ni secretos al repo. Usa variables del entorno del proveedor.
-- Rate limiting y CORS se pueden añadir según el cliente/consumo esperado.
-- En desarrollo, Flask reloader duplica algunas acciones de import: no implica dobles inserciones.
-
-—
-
-## Troubleshooting
-- "No module named 'psycopg2'": estás usando el driver viejo. Este proyecto usa psycopg3. Asegúrate de instalar `psycopg[binary]` y que la URL sea `postgresql(+psycopg)://`.
-- "Connection via SSH" al ver la BD: tu Postgres de Railway se accede por TCP/SSL, no por SSH. Conéctate con la cadena `postgresql://...` y `sslmode=require` si aplica.
-- Veo dos logs de “Conexión a la base de datos remota exitosa.”: el reloader de Flask en dev crea dos procesos. En prod (Gunicorn) no ocurre, y se ha reducido el log duplicado.
-
-—
-
-© Proyecto API Médica de Predicción de Diabetes
-}
+│   ├── __init__.py
+│   ├── user_service.py             # Lógica auth
+│   ├── model_service.py            # Carga y extracción PKL
+│   └── prediction_service.py       # Predicciones dinámicas
+└── models/                         # Directorio para archivos PKL
+    ├── .gitkeep                    # Mantener directorio en git
+    └── [model_id]/
+        ├── model.pkl
+        └── scaler.pkl (opcional)
 ```
 
 ---
 
-**Autor:** AlanHerr
+## 🚀 Instalación y Configuración
+
+### Prerrequisitos
+- Python 3.8+
+- pip
+- Git
+
+### 1. Clonar el Repositorio
+```bash
+git clone https://github.com/AlanHerr/AlanHerr-ApiMedicaBack.git
+cd AlanHerr-ApiMedicaBack
+```
+
+### 2. Crear Entorno Virtual
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# .venv\Scripts\activate   # Windows
+```
+
+### 3. Instalar Dependencias
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configurar Variables de Entorno
+Crear archivo `.env` en la raíz del proyecto (ver sección [Variables de Entorno](#variables-de-entorno))
+
+### 5. Ejecutar en Desarrollo
+```bash
+python app.py
+```
+
+La API estará disponible en `http://localhost:5000`
+
+---
+
+## 🔧 Variables de Entorno
+
+Crear un archivo `.env` en la raíz del proyecto:
+
+```env
+# Base de Datos
+DATABASE_URL=postgresql://usuario:contraseña@host:puerto/nombre_db
+
+# JWT
+JWT_SECRET_KEY=tu_clave_secreta_muy_segura_aqui
+
+# CORS (opcional)
+CORS_ORIGINS=https://tu-frontend.vercel.app,https://otro-dominio.com
+
+# Puerto (opcional, default 5000)
+PORT=5000
+```
+
+### Notas sobre Base de Datos
+- **PostgreSQL (Recomendado)**: Usa Railway u otro proveedor cloud
+- **SQLite (Desarrollo)**: Si `DATABASE_URL` falla, automáticamente usa `sqlite:///medical_local.db`
+- **SSL**: Para Railway, agrega `?sslmode=require` a la URL si es necesario
+
+---
+
+## 📖 Uso de la API
+
+### Flujo Típico de Uso
+
+1. **Registro/Login**: Crear cuenta de usuario (admin para subir modelos)
+2. **Subir Modelo**: Admin carga modelo PKL con metadatos
+3. **Listar Modelos**: Ver modelos disponibles
+4. **Obtener Schema**: Frontend obtiene esquema dinámico para formularios
+5. **Hacer Predicción**: Usuario envía datos y recibe predicción almacenada
+
+### Autenticación
+- Usa JWT tokens para endpoints protegidos
+- Usuarios normales: solo predicciones
+- Admins: pueden subir modelos
+
+Ver [API_GUIDE.md](API_GUIDE.md) para ejemplos completos con curl.
+
+---
+
+## 🔗 Endpoints Principales
+
+### Autenticación
+- `POST /users/register` - Registro de usuario
+- `POST /users/login` - Login y obtención de JWT
+
+### Gestión de Modelos (Admin)
+- `POST /admin/model/upload` - Subir modelo PKL
+- `GET /models` - Listar modelos disponibles
+- `GET /models/{id}/schema` - Obtener esquema para frontend
+
+### Predicciones
+- `POST /predict/{model_id}` - Ejecutar predicción
+
+### Documentación Detallada
+Para payloads, respuestas y ejemplos completos, consulta [API_GUIDE.md](API_GUIDE.md)
+
+---
+
+## 🤖 Formatos de Modelos Soportados
+
+### ✅ Pipeline Completo (Recomendado)
+```python
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+
+pipeline = Pipeline([
+    ('scaler', StandardScaler()),
+    ('model', RandomForestClassifier())
+])
+pipeline.fit(X_train, y_train)
+joblib.dump(pipeline, 'model.pkl')
+```
+
+### ✅ Modelo + Scaler Separados
+```python
+# Scaler
+scaler = StandardScaler()
+scaler.fit(X_train)
+joblib.dump(scaler, 'scaler.pkl')
+
+# Modelo
+model = RandomForestClassifier()
+model.fit(scaler.transform(X_train), y_train)
+joblib.dump(model, 'model.pkl')
+```
+
+### Requisitos
+- **Librerías**: scikit-learn, joblib
+- **Tipos**: Clasificadores binarios o regresión
+- **Features**: Nombres de features accesibles vía `feature_names_in_` o proporcionados en metadatos
+
+---
+
+## 🗄️ Base de Datos
+
+### Tablas Estáticas
+- `users`: id, username, password_hash, is_admin, created_at
+- `model_metadata`: id, model_id, name, version, description, model_type, n_features, output_type, created_at, file_path
+
+### Tablas Dinámicas
+Por cada modelo, se crea automáticamente:
+- `{model_id}_predictions`: Campos de input + prediction, probability, created_at
+
+### Compatibilidad
+- PostgreSQL: Producción (Railway)
+- SQLite: Desarrollo local (fallback automático)
+
+---
+
+## 🚢 Despliegue
+
+### Railway (Recomendado)
+1. Conectar repositorio GitHub
+2. Variables de entorno: `DATABASE_URL`, `JWT_SECRET_KEY`
+3. Puerto: Railway asigna automáticamente
+4. Comando: `web: gunicorn app:app`
+
+### Otros Proveedores
+- **Heroku**: Similar a Railway, usa `Procfile`
+- **Vercel**: Para serverless, adaptar a funciones
+- **Docker**: Crear Dockerfile con Python 3.8+ y requirements.txt
+
+---
+
+## 🔒 Seguridad
+
+### Autenticación
+- JWT tokens con expiración
+- Passwords hasheadas con Werkzeug
+- Roles: usuario normal vs admin
+
+### Validación
+- Entrada sanitizada
+- Validación de tipos de datos
+- Límites en tamaños de archivos PKL
+
+### Mejores Prácticas
+- No subir `.env` al repositorio
+- Usar HTTPS en producción
+- Rotar JWT_SECRET_KEY periódicamente
+- Rate limiting recomendado para producción
+
+---
+
+## 🐛 Troubleshooting
+
+### Errores Comunes
+
+**"No module named 'psycopg'"**
+- Instalar: `pip install psycopg[binary]`
+- Verificar requirements.txt
+
+**"Connection failed"**
+- Verificar DATABASE_URL
+- Agregar `?sslmode=require` para Railway
+
+**"Model loading failed"**
+- Verificar formato PKL (joblib/scikit-learn)
+- Revisar dependencias del modelo
+
+**JWT Errors**
+- Verificar token no expirado
+- Header: `Authorization: Bearer <token>`
+
+### Logs
+- Desarrollo: Flask muestra logs detallados
+- Producción: Configurar logging a archivo o servicio externo
+
+---
+
+## 🤝 Contribución
+
+1. Fork el proyecto
+2. Crear rama feature: `git checkout -b feature/nueva-funcionalidad`
+3. Commit cambios: `git commit -m 'Agrega nueva funcionalidad'`
+4. Push: `git push origin feature/nueva-funcionalidad`
+5. Crear Pull Request
+
+### Guías de Código
+- PEP 8 para Python
+- Docstrings en funciones públicas
+- Tests unitarios para nuevas funcionalidades
+
+---
+
+## 📄 Licencia
+
+Este proyecto está bajo la Licencia MIT. Ver archivo LICENSE para detalles.
+
+---
+
+**Autor**: AlanHerr  
+**Versión**: 2.0 - Sistema Dinámico  
+**Fecha**: Abril 2026

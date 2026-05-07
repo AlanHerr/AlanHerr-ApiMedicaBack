@@ -5,7 +5,7 @@
 ### 1. Crear cuenta y obtener JWT
 
 ```bash
-# Registrar usuario ADMIN
+# Registrar usuario
 curl -X POST http://localhost:5000/users/register \
   -H "Content-Type: application/json" \
   -d '{"username": "admin_user", "password": "password123"}'
@@ -18,31 +18,27 @@ TOKEN=$(curl -s -X POST http://localhost:5000/users/login \
 echo $TOKEN
 ```
 
+> El usuario creado no es admin por defecto. Para usar `/admin/model/upload` y `/admin/model/{model_id}`, el usuario debe tener `is_admin=true` en la base de datos.
+
 ### 2. Cargar un modelo (PKL)
 
 ```bash
-# Formato 1: Un archivo PKL completo (Pipeline o modelo simple)
 curl -X POST http://localhost:5000/admin/model/upload \
   -H "Authorization: Bearer $TOKEN" \
   -F "model_file=@/ruta/a/model.pkl" \
-  -F 'metadata={
-    "name": "Mi Modelo de Diabetes",
-    "model_id": "diabetes-v1",
-    "version": "1.0",
-    "description": "Predice riesgo de diabetes",
-    "feature_labels": {
-      "Pregnancies": "Número de embarazos",
-      "Glucose": "Nivel de glucosa",
-      "BloodPressure": "Presión arterial"
-    }
-  }'
+  -F 'metadata={"name":"Mi Modelo de Diabetes","model_id":"diabetes-v1","version":"1.0","description":"Predice riesgo de diabetes","feature_names":["Pregnancies","Glucose","BloodPressure"],"threshold":0.5}'
+```
 
-# Formato 2: Dos archivos (scaler + modelo separados)
+Si el modelo es un pipeline completo, solo necesita `model_file`.
+
+Si el modelo es un modelo independiente con scaler separado:
+
+```bash
 curl -X POST http://localhost:5000/admin/model/upload \
   -H "Authorization: Bearer $TOKEN" \
   -F "model_file=@/ruta/a/modelo.pkl" \
   -F "scaler_file=@/ruta/a/scaler.pkl" \
-  -F 'metadata={...}'
+  -F 'metadata={"name":"Mi Modelo de Diabetes","model_id":"diabetes-v1","version":"1.0","description":"Predice riesgo de diabetes","feature_names":["Pregnancies","Glucose","BloodPressure"],"threshold":0.5}'
 ```
 
 ### 3. Listar modelos disponibles
@@ -51,7 +47,8 @@ curl -X POST http://localhost:5000/admin/model/upload \
 curl -X GET http://localhost:5000/models
 ```
 
-Response:
+Ejemplo de respuesta:
+
 ```json
 {
   "models": [
@@ -59,7 +56,7 @@ Response:
       "model_id": "diabetes-v1",
       "name": "Mi Modelo de Diabetes",
       "version": "1.0",
-      "description": "...",
+      "description": "Predice riesgo de diabetes",
       "model_type": "DecisionTreeClassifier",
       "n_features": 8,
       "output_type": "classification",
@@ -75,23 +72,26 @@ Response:
 curl -X GET http://localhost:5000/models/diabetes-v1/schema
 ```
 
-Response:
+Ejemplo de respuesta:
+
 ```json
 {
   "model_id": "diabetes-v1",
   "name": "Mi Modelo de Diabetes",
+  "version": "1.0",
   "description": "...",
+  "model_type": "DecisionTreeClassifier",
   "features": [
     {
       "name": "Pregnancies",
-      "type": "int",
-      "label": "Número de embarazos",
+      "type": "float",
+      "label": "Pregnancies",
       "required": true
     },
     {
       "name": "Glucose",
       "type": "float",
-      "label": "Nivel de glucosa",
+      "label": "Glucose",
       "required": true
     }
   ],
@@ -106,10 +106,6 @@ Response:
 ### 5. Hacer una predicción
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:5000/users/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "user", "password": "pass"}' | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
-
 curl -X POST http://localhost:5000/predict/diabetes-v1 \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -125,7 +121,8 @@ curl -X POST http://localhost:5000/predict/diabetes-v1 \
   }'
 ```
 
-Response:
+Ejemplo de respuesta:
+
 ```json
 {
   "id": 1,
@@ -141,11 +138,13 @@ Response:
 ### 6. Debug mode (opcional)
 
 ```bash
-curl -X POST http://localhost:5000/predict/diabetes-v1?debug=true \
+curl -X POST "http://localhost:5000/predict/diabetes-v1?debug=true" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{...}'
 ```
+
+La respuesta incluirá un objeto `debug` con información adicional del modelo.
 
 ---
 
@@ -155,28 +154,30 @@ curl -X POST http://localhost:5000/predict/diabetes-v1?debug=true \
 
 ```json
 {
-  "model_file": "archivo.pkl",           // REQUERIDO: El modelo
-  "scaler_file": "scaler.pkl",           // OPCIONAL: Scaler si no es Pipeline
+  "model_file": "archivo.pkl",           // REQUERIDO: El modelo PKL
+  "scaler_file": "scaler.pkl",           // OPCIONAL: Scaler PKL si el modelo no es pipeline
   "metadata": {
     "name": "string",                    // Nombre del modelo
-    "model_id": "string",                // ID único (auto-generado si no se proporciona)
+    "model_id": "string",                // ID único. Si se omite, se genera a partir de name
     "version": "string",                 // Versión
     "description": "string",             // Descripción
-    "feature_labels": {                  // OPCIONAL: Labels para frontend
-      "feature_name": "Descripción"
-    },
-    "threshold": 0.5                     // OPCIONAL: Umbral de clasificación
+    "feature_names": ["f1", "f2"],     // OPCIONAL: Nombres de features si el modelo no los expone
+    "threshold": 0.5                      // OPCIONAL: Umbral para el campo positive
   }
 }
 ```
+
+### Notas de metadata
+- `feature_names`: útil cuando el modelo no tiene `feature_names_in_` o `n_features_in_`.
+- Si no se proporcionan tipos de feature, el sistema asume `float`.
+- `threshold` se usa sólo cuando el modelo devuelve probabilidades.
 
 ---
 
 ## 🐛 Formatos Soportados
 
-### ✅ Soportados
+### ✅ Pipeline Completo (recomendado)
 
-**Opción 1: Pipeline Completo**
 ```python
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -184,37 +185,48 @@ from sklearn.tree import DecisionTreeClassifier
 
 pipe = Pipeline([
     ('scaler', StandardScaler()),
-    ('modelo', DecisionTreeClassifier())
+    ('model', DecisionTreeClassifier())
 ])
 pipe.fit(X_train, y_train)
 joblib.dump(pipe, 'model.pkl')
 ```
 
-**Opción 2: Scaler + Modelo Separados**
+### ✅ Modelo + Scaler Separados
+
 ```python
+from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+import joblib
+
 scaler = StandardScaler()
 scaler.fit(X_train)
 joblib.dump(scaler, 'scaler.pkl')
 
-modelo = DecisionTreeClassifier()
-modelo.fit(scaler.transform(X_train), y_train)
-joblib.dump(modelo, 'modelo.pkl')
+model = DecisionTreeClassifier()
+model.fit(scaler.transform(X_train), y_train)
+joblib.dump(model, 'model.pkl')
 ```
+
+### Requisitos
+- Modelos serializados con `joblib`
+- Archivos `.pkl`
+- Modelos scikit-learn compatibles
+- Si el modelo no es pipeline y necesita escalado, envía `scaler_file`
 
 ---
 
 ## 📊 Estructura de Datos Guardada
 
-Cada modelo crea su propia tabla en la BD:
+Cada modelo crea una tabla dinámica de predicciones en la base de datos:
 
 ```
 {model_id}_predictions
 ├─ id (INT, PK)
-├─ feature1 (FLOAT/INT según tipo)
-├─ feature2 (FLOAT/INT según tipo)
+├─ <feature1> (FLOAT/INT según tipo)
+├─ <feature2> (FLOAT/INT según tipo)
 ├─ ...
 ├─ predicted (INT o FLOAT)
-├─ probability (FLOAT, NULL si no tiene predict_proba)
+├─ probability (FLOAT, NULL si no hay predict_proba)
 └─ created_at (TIMESTAMP)
 ```
 
@@ -224,128 +236,109 @@ Ejemplo: `diabetes_v1_predictions`
 
 ## 🔐 Autenticación y Roles
 
-### Endpoints Públicos (sin JWT)
+### Endpoints públicos (sin JWT)
 - `POST /users/register`
 - `POST /users/login`
 - `GET /models`
 - `GET /models/{model_id}/schema`
 
-### Endpoints Protegidos (JWT requerido)
-- `POST /predict/{model_id}` ← Cualquier usuario autenticado
+### Endpoints protegidos (JWT requerido)
+- `POST /predict/{model_id}`
 
-### Endpoints Admin (JWT + is_admin=true)
+### Endpoints admin (JWT + is_admin=true)
 - `POST /admin/model/upload`
 - `DELETE /admin/model/{model_id}`
 
 ---
 
-## ❌ Errores Comunes
+## 📌 Endpoints disponibles
+
+- `POST /users/register` — Registrar usuario
+- `POST /users/login` — Login y obtención de token JWT
+- `POST /admin/model/upload` — Subir modelo PKL (admin)
+- `GET /models` — Listar modelos activos
+- `GET /models/{model_id}/schema` — Obtener esquema de features y output
+- `DELETE /admin/model/{model_id}` — Eliminar modelo (lo marca como inactivo)
+- `POST /predict/{model_id}` — Ejecutar predicción y almacenar resultado
+
+---
+
+## ❌ Errores comunes
 
 ### Error 409: Modelo ya existe
-```
+
+```json
 {"error": "El modelo diabetes-v1 ya existe"}
 ```
-**Solución:** Usa un `model_id` diferente
+
+**Solución:** Usa un `model_id` diferente o elimina el modelo existente.
+
+### Error 400: Archivo modelo requerido
+
+```json
+{"error": "Archivo modelo requerido"}
+```
+
+**Solución:** Incluye `model_file` en el form-data.
+
+### Error 403: No autorizado
+
+```json
+{"error": "Se requieren permisos de administrador"}
+```
+
+**Solución:** Usa un usuario admin para subir o eliminar modelos.
+
+### Error 404: Modelo no encontrado
+
+```json
+{"error": "Modelo diabetes-v1 no encontrado"}
+```
+
+**Solución:** Verifica `model_id` y usa `/models` para confirmar que el modelo existe.
 
 ### Error 422: Validación de features
-```
+
+```json
 {
   "errors": {
     "Pregnancies": "Campo requerido",
-    "Glucose": "Debe ser float"
+    "Glucose": "Debe ser de tipo float"
   }
 }
 ```
-**Solución:** Verifica que envíes TODOS los features con tipos correctos. Usa `/models/{model_id}/schema` para ver qué espera el modelo.
 
-### Error 403: No autorizado
-```
-{"error": "Se requieren permisos de administrador"}
-```
-**Solución:** Solo ADMIN puede hacer upload. Contacta al administrador del sistema.
-
-### Error 404: Modelo no encontrado
-```
-{"error": "Modelo {model_id} no encontrado"}
-```
-**Solución:** Usa `/models` para listar modelos disponibles y verifica el `model_id`.
+**Solución:** Envía todos los features esperados con tipos correctos.
 
 ---
 
-## 🧪 Test Completo
+## 💡 Tips para frontend
 
-```bash
-#!/bin/bash
-
-# 1. Registrar
-curl -X POST http://localhost:5000/users/register \
-  -H "Content-Type: application/json" \
-  -d '{"username": "test_user", "password": "test123"}'
-
-# 2. Login
-TOKEN=$(curl -s -X POST http://localhost:5000/users/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "test_user", "password": "test123"}' | jq -r '.access_token')
-
-# 3. Upload modelo (necesita archivo real)
-# curl -X POST http://localhost:5000/admin/model/upload \
-#   -H "Authorization: Bearer $TOKEN" \
-#   -F "model_file=@model.pkl" \
-#   -F 'metadata={"name":"Test","description":"Test model"}'
-
-# 4. Listar modelos
-curl -X GET http://localhost:5000/models | jq
-
-# 5. Obtener schema
-# curl -X GET http://localhost:5000/models/test-model/schema | jq
-
-# 6. Hacer predicción
-# curl -X POST http://localhost:5000/predict/test-model \
-#   -H "Authorization: Bearer $TOKEN" \
-#   -H "Content-Type: application/json" \
-#   -d '{"feature1": 1, "feature2": 2}'
-```
+1. Consultar `/models/{model_id}/schema` para renderizar formularios dinámicos.
+2. Validar tipos de datos antes de hacer el POST a `/predict/{model_id}`.
+3. Mostrar `prediction`, `probability` y `positive`.
+4. Usar `threshold` del modelo para interpretar la clase positiva.
 
 ---
 
-## 📚 Referencia de Tipos de Features
-
-Tipos soportados al extraer metadata:
-
-```
-"int"   → Entero (Pregnancies, Age)
-"float" → Decimal (Glucose, BMI, etc.)
-```
-
-Si el modelo no especifica tipos explícitamente, se asume `float` por defecto.
-
----
-
-## 🎬 Próximos Pasos para Frontend
-
-1. **Obtener schema dinámico:**
-   ```javascript
-   const response = await fetch(`/models/${model_id}/schema`);
-   const schema = await response.json();
-   ```
-
-2. **Renderizar form dinámicamente** con campos según `schema.features`
-
-3. **Validar entrada** antes de enviar a `/predict/{model_id}`
-
-4. **Mostrar resultado** con `prediction` y `probability`
-
----
-
-## 🔧 Variables de Entorno
+## 📁 Variables de entorno
 
 ```env
 DATABASE_URL=postgresql://user:pass@host:port/db
 JWT_SECRET_KEY=tu_clave_super_secreta
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+PORT=5000
 ```
 
 ---
 
-**Última actualización:** Marzo 17, 2026
-**Versión:** 1.0 - Sistema Dinámico de Modelos
+## 📦 Ejecución local
+
+```bash
+python app.py
+```
+
+La API se expondrá en `http://localhost:5000`.
+
+
+
