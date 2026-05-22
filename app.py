@@ -2,13 +2,15 @@
 # Importa la clase principal de Flask para crear la aplicación web
 
 import os
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
 from controller.user_controller import users_bp
 from controller.model_controller import model_bp
 from controller.predict_controller import predict_bp
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
+from sqlalchemy import text
+from config.database import get_db_session
 
 # Cargar variables de entorno
 load_dotenv()
@@ -43,8 +45,35 @@ app.register_blueprint(model_bp)
 app.register_blueprint(predict_bp)
 
 # Configuración de la clave secreta para JWT
-app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "tu_clave_secreta_jwt")
+jwt_secret = os.getenv("JWT_SECRET_KEY")
+if not jwt_secret:
+    raise RuntimeError("JWT_SECRET_KEY is required in environment and must not use a hardcoded fallback")
+app.config["JWT_SECRET_KEY"] = jwt_secret
 jwt = JWTManager(app)
+
+# Health Check Endpoint para Railway
+@app.route('/health', methods=['GET'])
+def health_check():
+    """
+    Endpoint de health check para Railway.
+    Retorna 200 si la API y BD están operacionales.
+    """
+    try:
+        # Verificar conexión a la base de datos
+        session = get_db_session()
+        session.execute(text("SELECT 1"))
+        session.close()
+        
+        return jsonify({
+            'status': 'healthy',
+            'service': 'API Médica',
+            'version': '2.0'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 503
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')

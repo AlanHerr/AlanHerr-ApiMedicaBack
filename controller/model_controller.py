@@ -95,9 +95,28 @@ def upload_model():
         if scaler_file and scaler_file.filename:
             scaler_temp_path = os.path.join(temp_dir, secure_filename(scaler_file.filename))
             scaler_file.save(scaler_temp_path)
-        
+
+        # Validación de integridad SHA-256 antes de cargar modelos serializados
+        expected_model_hash = metadata_json.get('model_hash')
+        expected_scaler_hash = metadata_json.get('scaler_hash')
+        if expected_model_hash:
+            try:
+                ModelService.verify_file_hash(model_temp_path, expected_model_hash, 'modelo')
+            except ValueError as e:
+                return jsonify({'error': str(e)}), 400
+        if scaler_temp_path and expected_scaler_hash:
+            try:
+                ModelService.verify_file_hash(scaler_temp_path, expected_scaler_hash, 'scaler')
+            except ValueError as e:
+                return jsonify({'error': str(e)}), 400
+
+        # Guardar hashes calculados en metadata para validaciones futuras
+        metadata_json['model_hash'] = ModelService.compute_sha256(model_temp_path)
+        if scaler_temp_path:
+            metadata_json['scaler_hash'] = ModelService.compute_sha256(scaler_temp_path)
+
         # Cargar modelo para extraer metadata
-        model = joblib.load(model_temp_path)
+        model = ModelService.load_serialized_model(model_temp_path, expected_model_hash)
         model_metadata = ModelService.extract_metadata_from_model(model)
         
         # Si no hay feature_names en el modelo, usar las de la metadata JSON

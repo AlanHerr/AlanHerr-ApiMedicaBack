@@ -1,5 +1,4 @@
 import logging
-import joblib
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from repository.model_metadata_repository import ModelMetadataRepository
@@ -38,12 +37,18 @@ def predict(model_id):
         payload = request.get_json(silent=True) or {}
         debug = request.args.get('debug') in ("1", "true", "True")
         
-        # Cargar modelo y scaler
+        # Cargar modelo y scaler con validación de integridad si existe hash guardado
+        metadata_hashes = model_metadata.metadata_json or {}
+        model_hash = metadata_hashes.get('model_hash')
+        scaler_hash = metadata_hashes.get('scaler_hash')
+
         try:
             model, scaler = ModelService.load_model_and_scaler(
                 model_metadata.model_path,
                 model_metadata.scaler_path,
-                model_metadata.is_pipeline
+                model_metadata.is_pipeline,
+                expected_model_hash=model_hash,
+                expected_scaler_hash=scaler_hash,
             )
         except Exception as e:
             logger.error(f"Error cargando modelo: {e}")

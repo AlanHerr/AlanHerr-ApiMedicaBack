@@ -33,6 +33,15 @@ venv.bak/
 # VSCode
 .vscode/
 
+# Machine Learning Models (too large for Git)
+models/*.pkl
+models/*.joblib
+models/*.h5
+models/*.pt
+models/*.pth
+*.pkl
+*.joblib
+
 # Logs
 *.log
 logs/

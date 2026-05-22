@@ -13,5 +13,5 @@ class User(Base):
     is_admin = Column(Boolean, default=False, nullable=False)
 
     def __repr__(self):
-        logger.info(f'Representación de usuario solicitada: {self.username}')
-        return f'<User {self.username}>'
+        # Evitar exponer información de usuario sensible en logs o representaciones.
+        return '<User>'

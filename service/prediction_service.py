@@ -41,10 +41,9 @@ def _get_or_create_predictions_table(model_id: str, feature_names: list, feature
     
     session = get_db_session()
     try:
-        # Verificar si tabla ya existe
-        inspector_result = engine.execute(
-            text(f"SELECT 1 FROM {table_name} LIMIT 1")
-        )
+        # Verificar si tabla ya existe (SQLAlchemy 2.x compatible)
+        with engine.connect() as conn:
+            conn.execute(text(f"SELECT 1 FROM {table_name} LIMIT 1"))
         logger.info(f"Tabla {table_name} ya existe.")
         return table_name
     except Exception:

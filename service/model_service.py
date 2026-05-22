@@ -1,3 +1,4 @@
+import hashlib
 import os
 import joblib
 import logging
@@ -32,6 +33,31 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 class ModelService:
     """Servicio para cargar, validar y extraer metadata de modelos PKL."""
+
+    @staticmethod
+    def compute_sha256(file_path: str) -> str:
+        """Calcula el hash SHA-256 de un archivo para validación de integridad."""
+        hash_obj = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                hash_obj.update(chunk)
+        return hash_obj.hexdigest()
+
+    @staticmethod
+    def verify_file_hash(file_path: str, expected_hash: str, label: str) -> None:
+        """Verifica que el archivo corresponda al hash SHA-256 esperado."""
+        if not expected_hash:
+            return
+        calculated_hash = ModelService.compute_sha256(file_path)
+        if calculated_hash.lower() != expected_hash.lower():
+            raise ValueError(f"Hash SHA-256 inválido para {label}.")
+
+    @staticmethod
+    def load_serialized_model(file_path: str, expected_hash: Optional[str] = None) -> Any:
+        """Carga un archivo serializado tras validar su integridad."""
+        if expected_hash:
+            ModelService.verify_file_hash(file_path, expected_hash, 'archivo serializado')
+        return joblib.load(file_path)
 
     @staticmethod
     def extract_metadata_from_model(model: Any) -> Dict[str, Any]:
@@ -176,7 +202,9 @@ class ModelService:
     def load_model_and_scaler(
         model_path: str,
         scaler_path: Optional[str] = None,
-        is_pipeline: bool = False
+        is_pipeline: bool = False,
+        expected_model_hash: Optional[str] = None,
+        expected_scaler_hash: Optional[str] = None,
     ) -> Tuple[Any, Any]:
         """
         Carga el modelo y scaler del disco.
@@ -185,14 +213,14 @@ class ModelService:
             Tuple(model, scaler)
         """
         try:
-            model = joblib.load(model_path)
+            model = ModelService.load_serialized_model(model_path, expected_model_hash)
             scaler = None
             
             if is_pipeline:
                 # Si es Pipeline, el scaler está incluido
                 scaler = None
             elif scaler_path:
-                scaler = joblib.load(scaler_path)
+                scaler = ModelService.load_serialized_model(scaler_path, expected_scaler_hash)
             
             return model, scaler
         except Exception as e:
