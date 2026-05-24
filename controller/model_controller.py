@@ -1,6 +1,8 @@
 import os
-import joblib
+import shutil
 import logging
+import json
+import tempfile
 from flask import Blueprint, request, jsonify, make_response
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from werkzeug.utils import secure_filename
@@ -45,12 +47,9 @@ def upload_model():
       - scaler_file: archivo PKL (opcional)
       - metadata: JSON string con nombre, descripción, versión, etc.
     """
-    # El preflight OPTIONS ya se maneja globalmente en app.py,
-    # pero dejamos este fallback por si acaso.
     if request.method == 'OPTIONS':
         return make_response(), 200
 
-    # Verificar JWT manualmente (porque quitamos el decorador para que OPTIONS pase)
     try:
         verify_jwt_in_request()
     except Exception as e:
@@ -58,11 +57,9 @@ def upload_model():
 
     user_id = get_jwt_identity()
 
-    # Verificar admin
     if not check_admin(int(user_id)):
         return jsonify({'error': 'Se requieren permisos de administrador'}), 403
 
-    # Validar archivos
     if 'model_file' not in request.files:
         return jsonify({'error': 'Archivo modelo requerido'}), 400
 
@@ -75,29 +72,22 @@ def upload_model():
     if not allowed_file(model_file.filename):
         return jsonify({'error': 'Solo se aceptan archivos .pkl'}), 400
 
-    # Parsear metadata
     metadata_json = {}
     if request.form.get('metadata'):
         try:
-            import json
             metadata_json = json.loads(request.form.get('metadata'))
         except Exception as e:
             return jsonify({'error': f'Metadata JSON inválido: {str(e)}'}), 400
 
-    # Extrayendo información básica
     model_id = metadata_json.get('model_id') or metadata_json.get('name', 'model').replace(' ', '_').lower()
     name = metadata_json.get('name', model_id)
     version = metadata_json.get('version', '1.0')
     description = metadata_json.get('description', '')
 
-    # Verificar que el modelo_id no exista ya
     if ModelMetadataRepository.exists(model_id):
         return jsonify({'error': f'El modelo {model_id} ya existe'}), 409
 
     try:
-        import tempfile, shutil, json
-
-        # Guardar archivos temporales
         temp_dir = tempfile.mkdtemp()
 
         model_temp_path = os.path.join(temp_dir, secure_filename(model_file.filename))
@@ -124,21 +114,17 @@ def upload_model():
             except ValueError as e:
                 return jsonify({'error': str(e)}), 400
 
-        # Guardar hashes calculados en metadata
         metadata_json['model_hash'] = ModelService.compute_sha256(model_temp_path)
         if scaler_temp_path:
             metadata_json['scaler_hash'] = ModelService.compute_sha256(scaler_temp_path)
 
-        # Cargar modelo para extraer metadata
         model = ModelService.load_serialized_model(model_temp_path, expected_model_hash)
         model_metadata = ModelService.extract_metadata_from_model(model)
 
-        # Si no hay feature_names en el modelo, usar las de la metadata JSON
         if not model_metadata['feature_names'] and metadata_json.get('feature_names'):
             model_metadata['feature_names'] = metadata_json.get('feature_names', [])
             model_metadata['n_features'] = len(model_metadata['feature_names'])
 
-        # Si aún no hay feature_names, crear defaults
         if not model_metadata['feature_names']:
             n_features = model_metadata['n_features']
             if n_features > 0:
@@ -150,17 +136,14 @@ def upload_model():
                              'Proporciona feature_names en metadata.'
                 }), 400
 
-        # Si no hay feature_types, crear defaults (todos float)
         if not model_metadata['feature_types'] or len(model_metadata['feature_types']) == 0:
             model_metadata['feature_types'] = ['float'] * len(model_metadata['feature_names'])
 
-        # Detectar si es Pipeline o necesita scaler separado
         is_pipeline = model_metadata.get('is_pipeline', False)
 
         if not is_pipeline and not scaler_temp_path:
             logger.warning("Modelo no es Pipeline y no se proporcionó scaler")
 
-        # Guardar archivos finales
         model_final_path, scaler_final_path = ModelService.save_model_files(
             model_temp_path,
             scaler_temp_path,
@@ -168,7 +151,6 @@ def upload_model():
             is_pipeline
         )
 
-        # Guardar metadata en BD
         model_record = ModelMetadataRepository.create(
             model_id=model_id,
             name=name,
@@ -188,8 +170,7 @@ def upload_model():
             metadata_json=metadata_json
         )
 
-        # Respuesta
-        response_data = {
+        response_data = _convert_to_json_serializable({
             'model_id': model_record.model_id,
             'name': model_record.name,
             'version': model_record.version,
@@ -202,11 +183,8 @@ def upload_model():
             },
             'status': 'ready',
             'created_at': model_record.created_at.isoformat(),
-        }
+        })
 
-        response_data = _convert_to_json_serializable(response_data)
-
-        # Limpiar temp
         shutil.rmtree(temp_dir, ignore_errors=True)
 
         return jsonify(response_data), 201
@@ -248,14 +226,14 @@ def list_models():
 def get_model_schema(model_id):
     """
     Obtiene el schema de un modelo específico.
-    Usado por el frontend para validar inputs dinámicamente.
+    Usado por el frontend para generar formularios dinámicamente.
     """
     try:
         model_metadata = ModelMetadataRepository.get_by_model_id(model_id)
         if not model_metadata:
             return jsonify({'error': 'Modelo no encontrado'}), 404
 
-        schema = {
+        schema = _convert_to_json_serializable({
             'model_id': model_metadata.model_id,
             'name': model_metadata.name,
             'version': model_metadata.version,
@@ -267,8 +245,7 @@ def get_model_schema(model_id):
                 'classes': _convert_to_json_serializable(model_metadata.classes),
                 'has_probability': model_metadata.has_proba,
             }
-        }
-        schema = _convert_to_json_serializable(schema)
+        })
         return jsonify(schema), 200
     except Exception as e:
         logger.error(f"Error obteniendo schema: {e}")
@@ -280,7 +257,10 @@ def get_model_schema(model_id):
 @model_bp.route('/admin/model/<model_id>', methods=['DELETE', 'OPTIONS'])
 def delete_model(model_id):
     """
-    Elimina un modelo (lo marca como inactivo).
+    Elimina un modelo completamente:
+    1. Tabla dinámica de predicciones en PostgreSQL
+    2. Archivos PKL del disco
+    3. Registro de metadata en BD (hard delete)
     Solo ADMIN.
     """
     if request.method == 'OPTIONS':
@@ -297,11 +277,51 @@ def delete_model(model_id):
         return jsonify({'error': 'Se requieren permisos de administrador'}), 403
 
     try:
-        success = ModelMetadataRepository.delete(model_id)
-        if not success:
+        # 1. Obtener metadata antes de eliminar (necesitamos los paths)
+        model_metadata = ModelMetadataRepository.get_by_model_id(model_id)
+        if not model_metadata:
             return jsonify({'error': 'Modelo no encontrado'}), 404
 
-        return jsonify({'message': f'Modelo {model_id} eliminado'}), 200
+        model_path = model_metadata.model_path
+        scaler_path = model_metadata.scaler_path
+
+        deleted_info = {
+            'table': False,
+            'model_file': False,
+            'scaler_file': False,
+            'metadata': False,
+        }
+
+        # 2. Eliminar tabla dinámica de predicciones en PostgreSQL
+        deleted_info['table'] = ModelMetadataRepository.drop_predictions_table(model_id)
+
+        # 3. Eliminar archivos PKL del disco
+        if model_path and os.path.exists(model_path):
+            os.remove(model_path)
+            deleted_info['model_file'] = True
+            logger.info(f"Archivo modelo eliminado: {model_path}")
+
+        if scaler_path and os.path.exists(scaler_path):
+            os.remove(scaler_path)
+            deleted_info['scaler_file'] = True
+            logger.info(f"Archivo scaler eliminado: {scaler_path}")
+
+        # Eliminar directorio del modelo si quedó vacío
+        model_dir = os.path.dirname(model_path) if model_path else None
+        if model_dir and os.path.isdir(model_dir):
+            shutil.rmtree(model_dir, ignore_errors=True)
+            logger.info(f"Directorio {model_dir} eliminado")
+
+        # 4. Hard delete del registro de metadata
+        deleted_info['metadata'] = ModelMetadataRepository.hard_delete(model_id)
+
+        logger.info(f"Modelo {model_id} eliminado completamente: {deleted_info}")
+
+        return jsonify({
+            'message': f'Modelo {model_id} eliminado completamente',
+            'deleted': deleted_info
+        }), 200
+
     except Exception as e:
-        logger.error(f"Error eliminando modelo: {e}")
+        logger.error(f"Error eliminando modelo {model_id}: {e}")
         return jsonify({'error': str(e)}), 500

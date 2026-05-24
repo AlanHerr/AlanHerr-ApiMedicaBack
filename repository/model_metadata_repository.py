@@ -1,5 +1,6 @@
 from model.model_metadata import ModelMetadata
-from config.database import get_db_session
+from config.database import get_db_session, engine
+from sqlalchemy import text
 import logging
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,6 @@ class ModelMetadataRepository:
 
     @staticmethod
     def get_by_model_id(model_id: str) -> ModelMetadata:
-        """Obtiene un modelo por su ID."""
         session = get_db_session()
         try:
             model = session.query(ModelMetadata).filter_by(model_id=model_id).first()
@@ -20,7 +20,6 @@ class ModelMetadataRepository:
 
     @staticmethod
     def get_all_active() -> list:
-        """Obtiene todos los modelos activos."""
         session = get_db_session()
         try:
             models = session.query(ModelMetadata).filter_by(is_active=True).all()
@@ -30,7 +29,6 @@ class ModelMetadataRepository:
 
     @staticmethod
     def get_all() -> list:
-        """Obtiene todos los modelos (activos e inactivos)."""
         session = get_db_session()
         try:
             models = session.query(ModelMetadata).all()
@@ -57,7 +55,6 @@ class ModelMetadataRepository:
         created_by_user_id: int,
         metadata_json: dict = None
     ) -> ModelMetadata:
-        """Crea un nuevo registro de modelo."""
         session = get_db_session()
         try:
             model = ModelMetadata(
@@ -92,27 +89,58 @@ class ModelMetadataRepository:
 
     @staticmethod
     def delete(model_id: str) -> bool:
-        """Elimina un modelo (marca como inactivo)."""
+        """Soft delete — marca como inactivo (conservar para compatibilidad interna)."""
         session = get_db_session()
         try:
             model = session.query(ModelMetadata).filter_by(model_id=model_id).first()
             if not model:
                 return False
-            
             model.is_active = False
             session.commit()
             logger.info(f"Modelo {model_id} marcado como inactivo.")
             return True
         except Exception as e:
             session.rollback()
-            logger.error(f"Error eliminando modelo: {e}")
+            logger.error(f"Error en soft delete del modelo: {e}")
             raise
         finally:
             session.close()
 
     @staticmethod
+    def hard_delete(model_id: str) -> bool:
+        """Hard delete — elimina físicamente el registro de metadata de la BD."""
+        session = get_db_session()
+        try:
+            model = session.query(ModelMetadata).filter_by(model_id=model_id).first()
+            if not model:
+                return False
+            session.delete(model)
+            session.commit()
+            logger.info(f"Registro de metadata del modelo {model_id} eliminado físicamente.")
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error en hard_delete del modelo {model_id}: {e}")
+            raise
+        finally:
+            session.close()
+
+    @staticmethod
+    def drop_predictions_table(model_id: str) -> bool:
+        """Elimina la tabla dinámica de predicciones del modelo en PostgreSQL."""
+        table_name = f"{model_id}_predictions"
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
+                conn.commit()
+            logger.info(f"Tabla dinámica '{table_name}' eliminada de la BD.")
+            return True
+        except Exception as e:
+            logger.warning(f"No se pudo eliminar la tabla '{table_name}': {e}")
+            return False
+
+    @staticmethod
     def exists(model_id: str) -> bool:
-        """Verifica si un modelo existe."""
         session = get_db_session()
         try:
             count = session.query(ModelMetadata).filter_by(model_id=model_id).count()
