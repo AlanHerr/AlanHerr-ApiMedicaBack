@@ -17,8 +17,6 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Configurar CORS: orígenes desde env CORS_ORIGINS (separados por coma)
-_origins_env = os.getenv("CORS_ORIGINS")
 # Configurar CORS
 _origins_env = os.getenv("CORS_ORIGINS")
 
