@@ -39,7 +39,7 @@ CORS(
 )
 
 def _add_cors_headers(response):
-    """Agrega headers CORS a cualquier response."""
+    """Agrega headers CORS y de seguridad a cualquier response."""
     origin = request.headers.get("Origin", "")
     if origin in allowed_origins:
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -47,11 +47,22 @@ def _add_cors_headers(response):
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         response.headers["Access-Control-Expose-Headers"] = "Authorization"
+
+    # ── Headers de seguridad — mitigación hallazgos OWASP ZAP ────────────────
+    # Previene MIME-sniffing (ZAP: X-Content-Type-Options)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Fuerza HTTPS por 1 año (ZAP: Strict-Transport-Security)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # Evita cacheo de respuestas sensibles (ZAP: Cache-Control)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     return response
 
 @app.after_request
 def apply_cors_headers(response):
-    """Garantiza headers CORS en TODAS las respuestas."""
+    """Garantiza headers CORS y de seguridad en TODAS las respuestas."""
     return _add_cors_headers(response)
 
 @app.before_request
@@ -78,7 +89,7 @@ if not jwt_secret:
 app.config["JWT_SECRET_KEY"] = jwt_secret
 jwt = JWTManager(app)
 
-# ── MANEJADORES DE ERROR (con headers CORS garantizados) ──────────────────────
+# ── MANEJADORES DE ERROR (con headers CORS y seguridad garantizados) ──────────
 
 @app.errorhandler(400)
 def handle_400(e):
