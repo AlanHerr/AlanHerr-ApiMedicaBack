@@ -11,6 +11,7 @@ class ModelMetadataRepository:
 
     @staticmethod
     def get_by_model_id(model_id: str) -> ModelMetadata:
+        """Obtiene un modelo por su ID."""
         session = get_db_session()
         try:
             model = session.query(ModelMetadata).filter_by(model_id=model_id).first()
@@ -20,6 +21,7 @@ class ModelMetadataRepository:
 
     @staticmethod
     def get_all_active() -> list:
+        """Obtiene todos los modelos activos."""
         session = get_db_session()
         try:
             models = session.query(ModelMetadata).filter_by(is_active=True).all()
@@ -29,6 +31,7 @@ class ModelMetadataRepository:
 
     @staticmethod
     def get_all() -> list:
+        """Obtiene todos los modelos (activos e inactivos)."""
         session = get_db_session()
         try:
             models = session.query(ModelMetadata).all()
@@ -55,6 +58,7 @@ class ModelMetadataRepository:
         created_by_user_id: int,
         metadata_json: dict = None
     ) -> ModelMetadata:
+        """Crea un nuevo registro de modelo."""
         session = get_db_session()
         try:
             model = ModelMetadata(
@@ -89,7 +93,7 @@ class ModelMetadataRepository:
 
     @staticmethod
     def delete(model_id: str) -> bool:
-        """Soft delete — marca como inactivo (conservar para compatibilidad interna)."""
+        """Soft delete — marca como inactivo (conservado para compatibilidad interna)."""
         session = get_db_session()
         try:
             model = session.query(ModelMetadata).filter_by(model_id=model_id).first()
@@ -141,9 +145,23 @@ class ModelMetadataRepository:
 
     @staticmethod
     def exists(model_id: str) -> bool:
+        """Verifica si existe cualquier registro con ese model_id (activo o inactivo)."""
         session = get_db_session()
         try:
             count = session.query(ModelMetadata).filter_by(model_id=model_id).count()
+            return count > 0
+        finally:
+            session.close()
+
+    @staticmethod
+    def exists_active(model_id: str) -> bool:
+        """Verifica si existe un modelo ACTIVO con ese model_id.
+        Usar este método en upload para no bloquear subidas tras un hard delete."""
+        session = get_db_session()
+        try:
+            count = session.query(ModelMetadata).filter_by(
+                model_id=model_id, is_active=True
+            ).count()
             return count > 0
         finally:
             session.close()

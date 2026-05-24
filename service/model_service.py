@@ -10,7 +10,11 @@ from sklearn.pipeline import Pipeline
 logger = logging.getLogger(__name__)
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / 'models'
-MODELS_DIR.mkdir(exist_ok=True)
+
+
+def _ensure_models_dir():
+    """Garantiza que el directorio de modelos existe antes de usarlo."""
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
@@ -65,7 +69,6 @@ class ModelService:
 
         metadata['model_type'] = final_model.__class__.__name__
 
-        # ✅ FIX: buscar feature_names_in_ en pipeline → primer paso → modelo final
         feature_names_raw = None
 
         if isinstance(model, Pipeline):
@@ -87,7 +90,6 @@ class ModelService:
         )
 
         metadata['feature_types'] = ModelService._extract_feature_types(model, metadata)
-
         metadata['output_type'] = ModelService._detect_output_type(final_model)
 
         if hasattr(final_model, 'classes_'):
@@ -123,6 +125,9 @@ class ModelService:
         model_id: str,
         is_pipeline: bool
     ) -> Tuple[str, Optional[str]]:
+        # Siempre garantizar que el directorio existe antes de guardar
+        _ensure_models_dir()
+
         model_final_name = f"{model_id}-model.pkl"
         scaler_final_name = f"{model_id}-scaler.pkl" if scaler_file_path else None
 
@@ -160,10 +165,8 @@ class ModelService:
         try:
             model = ModelService.load_serialized_model(model_path, expected_model_hash)
             scaler = None
-
             if not is_pipeline and scaler_path:
                 scaler = ModelService.load_serialized_model(scaler_path, expected_scaler_hash)
-
             return model, scaler
         except Exception as e:
             logger.error(f"Error cargando modelo: {e}")

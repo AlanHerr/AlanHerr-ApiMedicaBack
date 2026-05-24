@@ -4,11 +4,11 @@ import logging
 import json
 import tempfile
 from flask import Blueprint, request, jsonify, make_response
-from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
+from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from werkzeug.utils import secure_filename
 from repository.user_repository import UserRepository
 from repository.model_metadata_repository import ModelMetadataRepository
-from service.model_service import ModelService, _convert_to_json_serializable
+from service.model_service import ModelService, _convert_to_json_serializable, MODELS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def upload_model():
     version = metadata_json.get('version', '1.0')
     description = metadata_json.get('description', '')
 
-    if ModelMetadataRepository.exists(model_id):
+    if ModelMetadataRepository.exists_active(model_id):
         return jsonify({'error': f'El modelo {model_id} ya existe'}), 409
 
     try:
@@ -259,7 +259,7 @@ def delete_model(model_id):
     """
     Elimina un modelo completamente:
     1. Tabla dinámica de predicciones en PostgreSQL
-    2. Archivos PKL del disco
+    2. Archivos PKL del disco (sin borrar el directorio raíz /models/)
     3. Registro de metadata en BD (hard delete)
     Solo ADMIN.
     """
@@ -295,7 +295,9 @@ def delete_model(model_id):
         # 2. Eliminar tabla dinámica de predicciones en PostgreSQL
         deleted_info['table'] = ModelMetadataRepository.drop_predictions_table(model_id)
 
-        # 3. Eliminar archivos PKL del disco
+        # 3. Eliminar solo los archivos PKL — nunca el directorio raíz /models/
+        models_root = str(MODELS_DIR.resolve())
+
         if model_path and os.path.exists(model_path):
             os.remove(model_path)
             deleted_info['model_file'] = True
@@ -306,11 +308,14 @@ def delete_model(model_id):
             deleted_info['scaler_file'] = True
             logger.info(f"Archivo scaler eliminado: {scaler_path}")
 
-        # Eliminar directorio del modelo si quedó vacío
+        # Solo borrar subdirectorio si existe Y no es el directorio raíz
         model_dir = os.path.dirname(model_path) if model_path else None
-        if model_dir and os.path.isdir(model_dir):
+        if model_dir and os.path.isdir(model_dir) and os.path.realpath(model_dir) != os.path.realpath(models_root):
             shutil.rmtree(model_dir, ignore_errors=True)
-            logger.info(f"Directorio {model_dir} eliminado")
+            logger.info(f"Subdirectorio {model_dir} eliminado")
+
+        # Garantizar que el directorio raíz siempre existe tras el delete
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
         # 4. Hard delete del registro de metadata
         deleted_info['metadata'] = ModelMetadataRepository.hard_delete(model_id)
