@@ -1,4 +1,5 @@
 import os
+import logging
 from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
 from controller.user_controller import users_bp
@@ -11,9 +12,12 @@ from config.database import get_db_session
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 
-# Configurar CORS
+# ── CORS ──────────────────────────────────────────────────────────────────────
+
 _origins_env = os.getenv("CORS_ORIGINS")
 
 if _origins_env:
@@ -34,9 +38,8 @@ CORS(
     expose_headers=["Authorization"],
 )
 
-# Garantizar headers CORS en TODAS las respuestas (incluyendo errores y JWT)
-@app.after_request
-def apply_cors_headers(response):
+def _add_cors_headers(response):
+    """Agrega headers CORS a cualquier response."""
     origin = request.headers.get("Origin", "")
     if origin in allowed_origins:
         response.headers["Access-Control-Allow-Origin"] = origin
@@ -46,33 +49,78 @@ def apply_cors_headers(response):
         response.headers["Access-Control-Expose-Headers"] = "Authorization"
     return response
 
-# Manejar preflight OPTIONS globalmente para todas las rutas
+@app.after_request
+def apply_cors_headers(response):
+    """Garantiza headers CORS en TODAS las respuestas."""
+    return _add_cors_headers(response)
+
 @app.before_request
 def handle_preflight():
+    """Maneja preflight OPTIONS globalmente antes de que JWT lo intercepte."""
     if request.method == "OPTIONS":
         origin = request.headers.get("Origin", "")
         if origin in allowed_origins:
             response = make_response()
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
             response.status_code = 200
-            return response
+            return _add_cors_headers(response)
 
-# Registrar blueprints
+# ── BLUEPRINTS ────────────────────────────────────────────────────────────────
+
 app.register_blueprint(users_bp)
 app.register_blueprint(model_bp)
 app.register_blueprint(predict_bp)
 
-# JWT
+# ── JWT ───────────────────────────────────────────────────────────────────────
+
 jwt_secret = os.getenv("JWT_SECRET_KEY")
 if not jwt_secret:
     raise RuntimeError("JWT_SECRET_KEY is required in environment and must not use a hardcoded fallback")
 app.config["JWT_SECRET_KEY"] = jwt_secret
 jwt = JWTManager(app)
 
-# Health Check
+# ── MANEJADORES DE ERROR (con headers CORS garantizados) ──────────────────────
+
+@app.errorhandler(400)
+def handle_400(e):
+    response = jsonify({'error': 'Solicitud inválida', 'detail': str(e)})
+    response.status_code = 400
+    return _add_cors_headers(response)
+
+@app.errorhandler(401)
+def handle_401(e):
+    response = jsonify({'error': 'No autorizado'})
+    response.status_code = 401
+    return _add_cors_headers(response)
+
+@app.errorhandler(403)
+def handle_403(e):
+    response = jsonify({'error': 'Prohibido'})
+    response.status_code = 403
+    return _add_cors_headers(response)
+
+@app.errorhandler(404)
+def handle_404(e):
+    response = jsonify({'error': 'Recurso no encontrado'})
+    response.status_code = 404
+    return _add_cors_headers(response)
+
+@app.errorhandler(500)
+def handle_500(e):
+    response = jsonify({'error': 'Error interno del servidor'})
+    response.status_code = 500
+    return _add_cors_headers(response)
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Captura cualquier excepción no manejada y garantiza headers CORS."""
+    import traceback
+    logger.error(f"Unhandled exception: {traceback.format_exc()}")
+    response = jsonify({'error': 'Error interno del servidor', 'detail': str(e)})
+    response.status_code = 500
+    return _add_cors_headers(response)
+
+# ── HEALTH CHECK ──────────────────────────────────────────────────────────────
+
 @app.route('/health', methods=['GET'])
 def health_check():
     try:
