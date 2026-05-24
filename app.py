@@ -26,6 +26,7 @@ else:
     allowed_origins = [
         "http://localhost:5173",
         "http://localhost:3000",
+        "https://verbose-space-yodel-jpwq47wj75pf7px-3000.app.github.dev"
     ]
 
 CORS(
