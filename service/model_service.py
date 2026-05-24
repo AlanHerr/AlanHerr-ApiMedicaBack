@@ -14,9 +14,6 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 
 def _convert_to_json_serializable(obj: Any) -> Any:
-    """
-    Convierte tipos de NumPy a tipos Python nativos JSON-serializables.
-    """
     if isinstance(obj, np.integer):
         return int(obj)
     elif isinstance(obj, np.floating):
@@ -32,11 +29,9 @@ def _convert_to_json_serializable(obj: Any) -> Any:
 
 
 class ModelService:
-    """Servicio para cargar, validar y extraer metadata de modelos PKL."""
 
     @staticmethod
     def compute_sha256(file_path: str) -> str:
-        """Calcula el hash SHA-256 de un archivo para validación de integridad."""
         hash_obj = hashlib.sha256()
         with open(file_path, 'rb') as f:
             for chunk in iter(lambda: f.read(8192), b''):
@@ -45,7 +40,6 @@ class ModelService:
 
     @staticmethod
     def verify_file_hash(file_path: str, expected_hash: str, label: str) -> None:
-        """Verifica que el archivo corresponda al hash SHA-256 esperado."""
         if not expected_hash:
             return
         calculated_hash = ModelService.compute_sha256(file_path)
@@ -54,94 +48,67 @@ class ModelService:
 
     @staticmethod
     def load_serialized_model(file_path: str, expected_hash: Optional[str] = None) -> Any:
-        """Carga un archivo serializado tras validar su integridad."""
         if expected_hash:
             ModelService.verify_file_hash(file_path, expected_hash, 'archivo serializado')
         return joblib.load(file_path)
 
     @staticmethod
     def extract_metadata_from_model(model: Any) -> Dict[str, Any]:
-        """
-        Extrae metadata de un modelo cargado.
-        Soporta: Pipeline completo, modelos individuales (DecisionTree, LogisticRegression, etc.)
-        
-        Returns:
-            Dict con: model_type, feature_names, feature_types, output_type, classes, has_proba
-        """
         metadata = {}
-        
-        # Si es Pipeline, extraemos el modelo y scaler
+
         if isinstance(model, Pipeline):
             metadata['is_pipeline'] = True
-            # El último paso contiene el modelo
             final_model = model.steps[-1][1]
         else:
             metadata['is_pipeline'] = False
             final_model = model
-        
-        # Tipo de modelo
+
         metadata['model_type'] = final_model.__class__.__name__
-        
-        # Features esperadas
-        if hasattr(final_model, 'feature_names_in_'):
-            # Convertir a lista de strings y asegurar JSON-serializable
-            feature_names = [str(f) for f in final_model.feature_names_in_]
-            metadata['feature_names'] = feature_names
-        else:
-            metadata['feature_names'] = []
-        
+
+        # ✅ FIX: buscar feature_names_in_ en pipeline → primer paso → modelo final
+        feature_names_raw = None
+
+        if isinstance(model, Pipeline):
+            if hasattr(model, 'feature_names_in_'):
+                feature_names_raw = model.feature_names_in_
+            else:
+                first_step = model.steps[0][1]
+                if hasattr(first_step, 'feature_names_in_'):
+                    feature_names_raw = first_step.feature_names_in_
+
+        if feature_names_raw is None and hasattr(final_model, 'feature_names_in_'):
+            feature_names_raw = final_model.feature_names_in_
+
+        metadata['feature_names'] = [str(f) for f in feature_names_raw] if feature_names_raw is not None else []
+
         metadata['n_features'] = (
-            len(metadata['feature_names']) if metadata['feature_names'] 
+            len(metadata['feature_names']) if metadata['feature_names']
             else getattr(final_model, 'n_features_in_', 0)
         )
-        
-        # Tipos de features (si el scaler lo guarda)
+
         metadata['feature_types'] = ModelService._extract_feature_types(model, metadata)
-        
-        # Tipo de salida (clasificación, regresión, etc.)
+
         metadata['output_type'] = ModelService._detect_output_type(final_model)
-        
-        # Clases (si es clasificador)
+
         if hasattr(final_model, 'classes_'):
-            # Convertir clases a tipos Python nativos
-            classes = _convert_to_json_serializable(list(final_model.classes_))
-            metadata['classes'] = classes
+            metadata['classes'] = _convert_to_json_serializable(list(final_model.classes_))
         else:
             metadata['classes'] = None
-        
-        # ¿Puede dar probabilidades?
+
         metadata['has_proba'] = hasattr(final_model, 'predict_proba')
-        
+
         return metadata
 
     @staticmethod
     def _extract_feature_types(model: Any, metadata: Dict) -> list:
-        """
-        Intenta extraer tipos de features. Por defecto, supone float.
-        """
         feature_names = metadata.get('feature_names', [])
         if not feature_names:
             return []
-        
-        # Por defecto, float para todo (excepto si hay info en scaler)
-        feature_types = ['float'] * len(feature_names)
-        
-        # Si es Pipeline, checa el scaler
-        if isinstance(model, Pipeline):
-            for step_name, step in model.steps:
-                if hasattr(step, 'feature_names_in_'):
-                    # El scaler tiene info
-                    break
-        
-        # Nota: scikit-learn no guarda tipos explícitamente,
-        # así que estos son defaults. El usuario puede especificar.
-        return feature_types
+        return ['float'] * len(feature_names)
 
     @staticmethod
     def _detect_output_type(model: Any) -> str:
-        """Detecta si es clasificador o regresor."""
         model_name = model.__class__.__name__
-        
         if 'Classifier' in model_name or 'Decision' in model_name:
             return 'classification'
         elif 'Regressor' in model_name:
@@ -156,34 +123,18 @@ class ModelService:
         model_id: str,
         is_pipeline: bool
     ) -> Tuple[str, Optional[str]]:
-        """
-        Guarda los archivos PKL en la carpeta /models/ con nombres consistentes.
-        
-        Args:
-            model_file_path: Ruta temporal del archivo modelo
-            scaler_file_path: Ruta temporal del archivo scaler (opcional)
-            model_id: ID del modelo (ej: "diabetes-v1")
-            is_pipeline: Si es Pipeline completo
-        
-        Returns:
-            Tuple(model_final_path, scaler_final_path)
-        """
-        # Nombres finales
         model_final_name = f"{model_id}-model.pkl"
         scaler_final_name = f"{model_id}-scaler.pkl" if scaler_file_path else None
-        
+
         model_final_path = MODELS_DIR / model_final_name
         scaler_final_path = MODELS_DIR / scaler_final_name if scaler_final_name else None
-        
-        # Copiar/mover archivos
+
         try:
-            # El modelo
             with open(model_file_path, 'rb') as src:
                 with open(model_final_path, 'wb') as dst:
                     dst.write(src.read())
             logger.info(f"Modelo guardado en: {model_final_path}")
-            
-            # El scaler si existe
+
             if scaler_file_path:
                 with open(scaler_file_path, 'rb') as src:
                     with open(scaler_final_path, 'wb') as dst:
@@ -192,7 +143,7 @@ class ModelService:
         except Exception as e:
             logger.error(f"Error guardando archivos: {e}")
             raise
-        
+
         return (
             str(model_final_path),
             str(scaler_final_path) if scaler_final_path else None
@@ -206,22 +157,13 @@ class ModelService:
         expected_model_hash: Optional[str] = None,
         expected_scaler_hash: Optional[str] = None,
     ) -> Tuple[Any, Any]:
-        """
-        Carga el modelo y scaler del disco.
-        
-        Returns:
-            Tuple(model, scaler)
-        """
         try:
             model = ModelService.load_serialized_model(model_path, expected_model_hash)
             scaler = None
-            
-            if is_pipeline:
-                # Si es Pipeline, el scaler está incluido
-                scaler = None
-            elif scaler_path:
+
+            if not is_pipeline and scaler_path:
                 scaler = ModelService.load_serialized_model(scaler_path, expected_scaler_hash)
-            
+
             return model, scaler
         except Exception as e:
             logger.error(f"Error cargando modelo: {e}")
@@ -233,28 +175,19 @@ class ModelService:
         feature_names: list,
         feature_types: list
     ) -> Tuple[Dict[str, Any], Dict[str, str]]:
-        """
-        Valida que los datos de entrada sean válidos para el modelo.
-        
-        Returns:
-            Tuple(parsed_data, errors)
-        """
         errors = {}
         parsed = {}
-        
-        # Validar que estén todos los features
+
         for feature_name in feature_names:
             if feature_name not in data:
                 errors[feature_name] = 'Campo requerido'
-        
+
         if errors:
             return {}, errors
-        
-        # Parsear types
+
         for i, feature_name in enumerate(feature_names):
             feature_type = feature_types[i] if i < len(feature_types) else 'float'
             value = data[feature_name]
-            
             try:
                 if feature_type == 'int':
                     parsed[feature_name] = int(value)
@@ -264,8 +197,8 @@ class ModelService:
                     parsed[feature_name] = value
             except (ValueError, TypeError):
                 errors[feature_name] = f'Debe ser de tipo {feature_type}'
-        
+
         if errors:
             return {}, errors
-        
+
         return parsed, {}
