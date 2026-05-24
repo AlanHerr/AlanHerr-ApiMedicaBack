@@ -19,25 +19,30 @@ app = Flask(__name__)
 
 # Configurar CORS: orígenes desde env CORS_ORIGINS (separados por coma)
 _origins_env = os.getenv("CORS_ORIGINS")
+# Configurar CORS
+_origins_env = os.getenv("CORS_ORIGINS")
+
 if _origins_env:
-    allowed_origins = [o.strip() for o in _origins_env.split(',') if o.strip()]
+    allowed_origins = [
+        o.strip() for o in _origins_env.split(",") if o.strip()
+    ]
 else:
-    # Defaults de desarrollo; para producción define CORS_ORIGINS (ej: https://tu-app.vercel.app)
     allowed_origins = [
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://verbose-space-yodel-jpwq47wj75pf7px-3000.app.github.dev"
+        "https://verbose-space-yodel-jpwq47wj75pf7px-3000.app.github.dev",
     ]
 
 CORS(
     app,
-    resources={r"/*": {
-        "origins": allowed_origins,
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "expose_headers": ["Authorization"],
-    }},
+    origins=allowed_origins,
     supports_credentials=True,
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+    ],
+    expose_headers=["Authorization"],
 )
 
 # Registrar blueprints
