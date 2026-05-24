@@ -24,5 +24,13 @@ def login():
     user = UserService.authenticate(username, password)
     if not user:
         return jsonify({'error': 'Invalid credentials'}), 401
-    access_token = create_access_token(identity=str(user.id))
+
+    # ✅ Incluir is_admin y username en el token
+    access_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={
+            "username": user.username,
+            "is_admin": user.is_admin,
+        }
+    )
     return jsonify({'access_token': access_token}), 200
