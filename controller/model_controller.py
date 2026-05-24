@@ -28,7 +28,7 @@ def check_admin(user_id):
     return True
 
 
-@model_bp.route('/admin/model/upload', methods=['POST'])
+@model_bp.route('/admin/model/upload', methods=['POST', 'OPTIONS'])
 @jwt_required()
 def upload_model():
     """
